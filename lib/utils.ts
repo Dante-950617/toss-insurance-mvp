@@ -87,3 +87,28 @@ export const isStaleDeal = (deal: Deal): boolean => {
   const stuckStages: Deal['stage'][] = ['진행대기', '상담중', '클로징(승인대기)'];
   return stuckStages.includes(deal.stage) && getDwellDays(deal.last_updated) >= 5;
 };
+
+export function downloadCSV(filename: string, rows: (string | number | null | undefined)[][]) {
+  const csv = rows
+    .map((row) =>
+      row
+        .map((cell) => {
+          const s = String(cell ?? '');
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        })
+        .join(',')
+    )
+    .join('\n');
+  // BOM 포함 (Excel 한글 깨짐 방지)
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}

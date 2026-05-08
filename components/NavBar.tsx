@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { TrendingUp, Target, KanbanSquare, Settings, LogOut } from 'lucide-react';
+import {
+  TrendingUp,
+  Target,
+  KanbanSquare,
+  Settings,
+  LogOut,
+  Calendar,
+  Trophy,
+  BarChart2,
+} from 'lucide-react';
 import type { UserRole } from '@/lib/types';
 
 export default function NavBar({
@@ -28,13 +37,16 @@ export default function NavBar({
     { href: '/dashboard', label: '대시보드', icon: Target },
     {
       href: '/pipeline',
-      label: role === 'REP' ? '나의 파이프라인' : '팀원 파이프라인',
+      label: role === 'REP' ? '파이프라인' : '팀원 파이프라인',
       icon: KanbanSquare,
       badge: role === 'MANAGER' ? pendingApprovals : 0,
     },
+    { href: '/calendar', label: '캘린더', icon: Calendar },
+    { href: '/leaderboard', label: '리더보드', icon: Trophy },
+    { href: '/analytics', label: '분석', icon: BarChart2, managerOnly: true },
     {
       href: '/manager',
-      label: '조직 관리',
+      label: '조직',
       icon: Settings,
       managerOnly: true,
       badge: pendingUsers,
