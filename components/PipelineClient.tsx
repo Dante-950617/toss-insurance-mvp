@@ -34,7 +34,7 @@ import {
   addActivity,
 } from '@/lib/actions';
 import { formatCurrency, getDwellDays } from '@/lib/utils';
-import { STAGES, ACTIVITY_LABELS } from '@/lib/types';
+import { STAGES, ACTIVITY_LABELS, ACTIVE_ACTIVITY_TYPES } from '@/lib/types';
 import type {
   Profile,
   Deal,
@@ -111,7 +111,7 @@ export default function PipelineClient({
   const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
   const [confirmDeleteDealId, setConfirmDeleteDealId] = useState<string | null>(null);
   const [newActivity, setNewActivity] = useState({
-    type: 'call' as ActivityType,
+    type: 'call_success' as ActivityType,
     content: '',
   });
 
@@ -187,6 +187,13 @@ export default function PipelineClient({
       next_contact_date: null,
       notes: '',
       referrer: '',
+      customer_birth_date: null,
+      customer_gender: null,
+      family_info: '',
+      occupation: '',
+      income_range: '',
+      existing_insurance: '',
+      interest_keywords: '',
     };
     setDeals((prev) => [optimisticDeal, ...prev]);
     setNewCustomer('');
@@ -938,7 +945,7 @@ export default function PipelineClient({
                   }
                   className="bg-white border border-gray-200 rounded-lg px-3 text-xs font-bold cursor-pointer"
                 >
-                  {(Object.keys(ACTIVITY_LABELS) as ActivityType[]).map((t) => (
+                  {ACTIVE_ACTIVITY_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {ACTIVITY_LABELS[t]}
                     </option>
