@@ -36,9 +36,25 @@ import {
   formatDateKR,
   buildTeamAggregate,
   getDwellDays,
+  isStaleDeal,
 } from '@/lib/utils';
 import { createTask, toggleTask, deleteTask } from '@/lib/actions';
 import { useToast } from '@/components/Toast';
+
+type AutoTaskType =
+  | 'today_contact'
+  | 'overdue_contact'
+  | 'stale_deal'
+  | 'pending_approval';
+
+interface AutoTask {
+  key: string;
+  type: AutoTaskType;
+  dealId: string;
+  customerName: string;
+  sub: string;
+  priority: number; // 낮을수록 더 위
+}
 
 const GrowthIndicator = ({
   label,
@@ -157,6 +173,113 @@ export default function DashboardClient({
     if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
     return 0;
   });
+
+  const autoTasks: AutoTask[] = useMemo(() => {
+    const items: AutoTask[] = [];
+    const isMgr = currentUser.role === 'MANAGER';
+    const myDeals = isMgr ? deals : deals.filter((d) => d.member_id === currentUser.id);
+    const closedStages = ['계약완료', '실패'];
+
+    // 1) 오늘 컨택 예정
+    myDeals
+      .filter(
+        (d) =>
+          d.next_contact_date === todayStr && !closedStages.includes(d.stage)
+      )
+      .forEach((d) =>
+        items.push({
+          key: `today_${d.id}`,
+          type: 'today_contact',
+          dealId: d.id,
+          customerName: d.customer_name,
+          sub: d.phone || d.product_type || d.stage,
+          priority: 1,
+        })
+      );
+
+    // 2) 지연된 컨택 (예정일이 오늘 이전)
+    myDeals
+      .filter(
+        (d) =>
+          d.next_contact_date &&
+          d.next_contact_date < todayStr &&
+          !closedStages.includes(d.stage)
+      )
+      .forEach((d) =>
+        items.push({
+          key: `over_${d.id}`,
+          type: 'overdue_contact',
+          dealId: d.id,
+          customerName: d.customer_name,
+          sub: `예정일 ${d.next_contact_date} 지남`,
+          priority: 0, // 가장 위
+        })
+      );
+
+    // 3) 5일 이상 방치 (REP 본인 / MANAGER 전체)
+    myDeals.filter(isStaleDeal).forEach((d) => {
+      const member = members.find((m) => m.id === d.member_id);
+      items.push({
+        key: `stale_${d.id}`,
+        type: 'stale_deal',
+        dealId: d.id,
+        customerName: d.customer_name,
+        sub: `${getDwellDays(d.last_updated)}일째 ${d.stage}${
+          isMgr && member ? ` · ${member.name}` : ''
+        }`,
+        priority: 2,
+      });
+    });
+
+    // 4) MANAGER 전용: 클로징 승인 대기
+    if (isMgr) {
+      deals
+        .filter((d) => d.stage === '클로징(승인대기)')
+        .forEach((d) => {
+          const member = members.find((m) => m.id === d.member_id);
+          items.push({
+            key: `approve_${d.id}`,
+            type: 'pending_approval',
+            dealId: d.id,
+            customerName: d.customer_name,
+            sub: `${member?.name ?? ''} 승인 요청${d.deal_value ? ` · ${formatCurrency(d.deal_value)}원` : ''}`,
+            priority: 0,
+          });
+        });
+    }
+
+    return items.sort((a, b) => a.priority - b.priority);
+  }, [deals, currentUser, members, todayStr]);
+
+  const autoTaskMeta: Record<
+    AutoTaskType,
+    { label: string; bg: string; text: string; emoji: string }
+  > = {
+    overdue_contact: {
+      label: '지연',
+      bg: 'bg-red-50',
+      text: 'text-red-600',
+      emoji: '⚠️',
+    },
+    today_contact: {
+      label: '오늘',
+      bg: 'bg-blue-50',
+      text: 'text-[#3182F6]',
+      emoji: '📞',
+    },
+    pending_approval: {
+      label: '승인',
+      bg: 'bg-orange-50',
+      text: 'text-orange-600',
+      emoji: '🔔',
+    },
+    stale_deal: {
+      label: '방치',
+      bg: 'bg-gray-100',
+      text: 'text-[#4E5968]',
+      emoji: '⏱',
+    },
+  };
 
   const teamAggregate = useMemo(
     () => buildTeamAggregate(members, teamSettings),
@@ -447,108 +570,153 @@ export default function DashboardClient({
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-base font-bold text-[#191F28] flex items-center">
                 <CheckSquare className="w-5 h-5 mr-2 text-[#3182F6]" />
-                나의 할 일
+                오늘 할 일
               </h3>
               <span className="text-xs font-bold text-[#8B95A1]">
-                {tasks.filter((t) => !t.done).length}건 남음
+                {autoTasks.length + tasks.filter((t) => !t.done).length}건
               </span>
             </div>
 
-            <form onSubmit={handleAddTask} className="space-y-2 mb-4">
-              <input
-                type="text"
-                placeholder="할 일 입력 (예: 김토스 고객님 연락)"
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                className="w-full bg-[#F2F4F6] border-transparent rounded-xl py-2.5 px-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] focus:bg-white outline-none transition-all"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={newTaskDate}
-                  onChange={(e) => setNewTaskDate(e.target.value)}
-                  className="flex-1 bg-[#F2F4F6] border-transparent rounded-xl py-2.5 px-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] focus:bg-white outline-none transition-all"
-                />
-                <button
-                  type="submit"
-                  disabled={!newTaskTitle.trim()}
-                  className="bg-[#191F28] hover:bg-black disabled:opacity-40 text-white px-4 rounded-xl text-sm font-bold flex items-center transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </form>
-
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1 no-scrollbar">
-              {sortedTasks.length === 0 ? (
-                <p className="text-xs text-[#8B95A1] text-center py-6 bg-gray-50 rounded-xl border border-gray-100 font-medium">
-                  등록된 할 일이 없습니다
+            {autoTasks.length > 0 && (
+              <div className="mb-5">
+                <p className="text-[11px] font-bold text-[#8B95A1] uppercase tracking-wider mb-2 px-1">
+                  딜에서 자동 추출됨
                 </p>
-              ) : (
-                sortedTasks.map((task) => {
-                  const isOverdue =
-                    !task.done && task.due_date && task.due_date < todayStr;
-                  const isToday = task.due_date === todayStr;
-                  return (
-                    <div
-                      key={task.id}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl border ${
-                        task.done
-                          ? 'bg-gray-50 border-gray-100 opacity-60'
-                          : isOverdue
-                            ? 'bg-red-50/50 border-red-100'
-                            : isToday
-                              ? 'bg-blue-50/40 border-blue-100'
-                              : 'bg-white border-gray-100'
-                      } transition-colors group`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleToggleTask(task)}
-                        className={`shrink-0 ${
-                          task.done ? 'text-[#3182F6]' : 'text-gray-300 hover:text-[#3182F6]'
-                        }`}
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1 no-scrollbar">
+                  {autoTasks.map((task) => {
+                    const meta = autoTaskMeta[task.type];
+                    return (
+                      <Link
+                        key={task.key}
+                        href="/pipeline"
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border border-gray-100 ${meta.bg} hover:border-[#3182F6] transition-colors group`}
                       >
-                        {task.done ? (
-                          <CheckSquare className="w-5 h-5" />
-                        ) : (
-                          <Square className="w-5 h-5" />
-                        )}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <p
-                          className={`text-sm font-bold text-[#191F28] truncate ${
-                            task.done ? 'line-through' : ''
+                        <span
+                          className={`text-[10px] font-extrabold ${meta.text} bg-white px-1.5 py-0.5 rounded-md whitespace-nowrap shrink-0 mt-0.5`}
+                        >
+                          {meta.emoji} {meta.label}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[#191F28] truncate group-hover:text-[#3182F6] transition-colors">
+                            {task.customerName}
+                          </p>
+                          <p className="text-[10px] font-medium text-[#8B95A1] truncate">
+                            {task.sub}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-1 group-hover:text-[#3182F6]" />
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-[11px] font-bold text-[#8B95A1] uppercase tracking-wider mb-2 px-1">
+                직접 등록
+              </p>
+
+              <form onSubmit={handleAddTask} className="space-y-2 mb-3">
+                <input
+                  type="text"
+                  placeholder="할 일 입력 (예: 월말 보고서 정리)"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  className="w-full bg-[#F2F4F6] border-transparent rounded-xl py-2.5 px-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] focus:bg-white outline-none transition-all"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={newTaskDate}
+                    onChange={(e) => setNewTaskDate(e.target.value)}
+                    className="flex-1 bg-[#F2F4F6] border-transparent rounded-xl py-2.5 px-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] focus:bg-white outline-none transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newTaskTitle.trim()}
+                    className="bg-[#191F28] hover:bg-black disabled:opacity-40 text-white px-4 rounded-xl text-sm font-bold flex items-center transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </form>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1 no-scrollbar">
+                {sortedTasks.length === 0 ? (
+                  <p className="text-xs text-[#8B95A1] text-center py-4 bg-gray-50 rounded-xl border border-gray-100 font-medium">
+                    {autoTasks.length > 0
+                      ? '딜과 무관한 별도 할 일이 있다면 여기에 추가'
+                      : '등록된 할 일이 없습니다'}
+                  </p>
+                ) : (
+                  sortedTasks.map((task) => {
+                    const isOverdue =
+                      !task.done && task.due_date && task.due_date < todayStr;
+                    const isToday = task.due_date === todayStr;
+                    return (
+                      <div
+                        key={task.id}
+                        className={`flex items-center gap-2 p-2.5 rounded-xl border ${
+                          task.done
+                            ? 'bg-gray-50 border-gray-100 opacity-60'
+                            : isOverdue
+                              ? 'bg-red-50/50 border-red-100'
+                              : isToday
+                                ? 'bg-blue-50/40 border-blue-100'
+                                : 'bg-white border-gray-100'
+                        } transition-colors group`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTask(task)}
+                          className={`shrink-0 ${
+                            task.done
+                              ? 'text-[#3182F6]'
+                              : 'text-gray-300 hover:text-[#3182F6]'
                           }`}
                         >
-                          {task.title}
-                        </p>
-                        {task.due_date && (
+                          {task.done ? (
+                            <CheckSquare className="w-5 h-5" />
+                          ) : (
+                            <Square className="w-5 h-5" />
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
                           <p
-                            className={`text-[10px] font-bold mt-0.5 ${
-                              isOverdue
-                                ? 'text-red-600'
-                                : isToday
-                                  ? 'text-[#3182F6]'
-                                  : 'text-[#8B95A1]'
+                            className={`text-sm font-bold text-[#191F28] truncate ${
+                              task.done ? 'line-through' : ''
                             }`}
                           >
-                            {isOverdue ? '⚠ 지남: ' : isToday ? '📅 오늘: ' : ''}
-                            {task.due_date}
+                            {task.title}
                           </p>
-                        )}
+                          {task.due_date && (
+                            <p
+                              className={`text-[10px] font-bold mt-0.5 ${
+                                isOverdue
+                                  ? 'text-red-600'
+                                  : isToday
+                                    ? 'text-[#3182F6]'
+                                    : 'text-[#8B95A1]'
+                              }`}
+                            >
+                              {isOverdue ? '⚠ 지남: ' : isToday ? '📅 오늘: ' : ''}
+                              {task.due_date}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="text-gray-300 hover:text-red-500 transition-colors p-1 opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="text-gray-300 hover:text-red-500 transition-colors p-1 opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
 
