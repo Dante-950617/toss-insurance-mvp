@@ -692,6 +692,89 @@ export default function PipelineClient({
               </div>
             </div>
 
+            {/* 활동 타임라인 — 헤더 바로 아래로 (영업 컨텍스트 우선 노출) */}
+            <div className="mb-6">
+              <h4 className="text-sm font-bold text-[#191F28] mb-3 flex items-center">
+                <History className="w-4 h-4 mr-1.5 text-[#3182F6]" /> 활동 타임라인
+                <span className="ml-2 text-[10px] font-bold text-[#8B95A1] bg-gray-100 px-2 py-0.5 rounded-md">
+                  {dealActivities.length}건
+                </span>
+              </h4>
+
+              <form
+                onSubmit={handleAddActivity}
+                className="bg-[#F9FAFB] rounded-xl p-3 mb-3 flex gap-2 items-stretch border border-gray-100"
+              >
+                <select
+                  value={newActivity.type}
+                  onChange={(e) =>
+                    setNewActivity({
+                      ...newActivity,
+                      type: e.target.value as ActivityType,
+                    })
+                  }
+                  className="bg-white border border-gray-200 rounded-lg px-3 text-xs font-bold cursor-pointer"
+                >
+                  {ACTIVE_ACTIVITY_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {ACTIVITY_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="활동 내용 (예: 자녀 보험 관심)"
+                  value={newActivity.content}
+                  onChange={(e) =>
+                    setNewActivity({ ...newActivity, content: e.target.value })
+                  }
+                  className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                />
+                <button
+                  type="submit"
+                  className="bg-[#3182F6] text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-600 flex items-center"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </form>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1 no-scrollbar">
+                {dealActivities.length === 0 ? (
+                  <p className="text-xs text-[#8B95A1] text-center py-4 bg-gray-50 rounded-xl border border-gray-100 font-medium">
+                    아직 기록된 활동이 없습니다 — 위에서 첫 활동을 기록해보세요
+                  </p>
+                ) : (
+                  dealActivities.map((act) => {
+                    const author = members.find((m) => m.id === act.author_id);
+                    return (
+                      <div
+                        key={act.id}
+                        className="bg-white border border-gray-100 rounded-xl p-2.5 flex gap-2 items-start"
+                      >
+                        <div className="bg-blue-50 text-[#3182F6] text-[10px] font-bold px-2 py-1 rounded-md whitespace-nowrap shrink-0">
+                          {ACTIVITY_LABELS[act.activity_type]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-[#191F28] font-medium leading-snug break-words">
+                            {act.content}
+                          </p>
+                          <p className="text-[10px] text-[#8B95A1] mt-0.5 font-medium">
+                            {author?.name ?? '알 수 없음'} ·{' '}
+                            {new Date(act.created_at).toLocaleString('ko-KR', {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
             <form onSubmit={handleSaveDetail} className="space-y-5">
               <div>
                 <label className="block text-sm font-semibold text-[#4E5968] mb-2">
@@ -850,6 +933,151 @@ export default function PipelineClient({
                 />
               </div>
 
+              {/* 고객 상세 정보 (펼치기) */}
+              <details className="bg-[#F9FAFB] rounded-2xl border border-gray-100 group">
+                <summary className="flex items-center justify-between cursor-pointer p-4 list-none">
+                  <span className="text-sm font-bold text-[#191F28] flex items-center">
+                    <Users className="w-4 h-4 mr-1.5 text-[#3182F6]" />
+                    고객 상세 정보 (영업 자산)
+                  </span>
+                  <span className="text-xs text-[#8B95A1] group-open:hidden">펼치기 ▼</span>
+                  <span className="text-xs text-[#8B95A1] hidden group-open:inline">접기 ▲</span>
+                </summary>
+                <div className="px-4 pb-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                        생년월일
+                      </label>
+                      <input
+                        type="date"
+                        value={detailDeal.customer_birth_date ?? ''}
+                        onChange={(e) =>
+                          setDetailDeal({
+                            ...detailDeal,
+                            customer_birth_date: e.target.value || null,
+                          })
+                        }
+                        className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                        readOnly={!canManageDeal(detailDeal)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                        성별
+                      </label>
+                      <select
+                        value={detailDeal.customer_gender ?? ''}
+                        onChange={(e) =>
+                          setDetailDeal({
+                            ...detailDeal,
+                            customer_gender: e.target.value || null,
+                          })
+                        }
+                        className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                        disabled={!canManageDeal(detailDeal)}
+                      >
+                        <option value="">선택</option>
+                        <option value="M">남성</option>
+                        <option value="F">여성</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                      가족 관계 (배우자/자녀 등 — 크로스셀)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 배우자 + 초등생 자녀 1명"
+                      value={detailDeal.family_info}
+                      onChange={(e) =>
+                        setDetailDeal({ ...detailDeal, family_info: e.target.value })
+                      }
+                      className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                      readOnly={!canManageDeal(detailDeal)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                        직업
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="회사원, 자영업 등"
+                        value={detailDeal.occupation}
+                        onChange={(e) =>
+                          setDetailDeal({ ...detailDeal, occupation: e.target.value })
+                        }
+                        className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                        readOnly={!canManageDeal(detailDeal)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                        소득 수준
+                      </label>
+                      <select
+                        value={detailDeal.income_range}
+                        onChange={(e) =>
+                          setDetailDeal({ ...detailDeal, income_range: e.target.value })
+                        }
+                        className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                        disabled={!canManageDeal(detailDeal)}
+                      >
+                        <option value="">선택</option>
+                        <option value="UNDER_3M">~ 300만</option>
+                        <option value="3_5M">300 ~ 500만</option>
+                        <option value="5_8M">500 ~ 800만</option>
+                        <option value="8_12M">800 ~ 1200만</option>
+                        <option value="OVER_12M">1200만 +</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                      현재 보유 보험
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: A생명 종신, B손보 실손"
+                      value={detailDeal.existing_insurance}
+                      onChange={(e) =>
+                        setDetailDeal({
+                          ...detailDeal,
+                          existing_insurance: e.target.value,
+                        })
+                      }
+                      className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                      readOnly={!canManageDeal(detailDeal)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1">
+                      관심 상품 / 키워드
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 자녀 보험, 암보험"
+                      value={detailDeal.interest_keywords}
+                      onChange={(e) =>
+                        setDetailDeal({
+                          ...detailDeal,
+                          interest_keywords: e.target.value,
+                        })
+                      }
+                      className="w-full border border-gray-200 bg-white rounded-lg p-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                      readOnly={!canManageDeal(detailDeal)}
+                    />
+                  </div>
+                </div>
+              </details>
+
               {isManager ? (
                 <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
                   <label className="block text-sm font-bold text-[#3182F6] mb-3 flex items-center">
@@ -925,85 +1153,6 @@ export default function PipelineClient({
                 </div>
               </div>
             </form>
-
-            <div className="mt-8 pt-6 border-t border-gray-100">
-              <h4 className="text-base font-bold text-[#191F28] mb-4 flex items-center">
-                <History className="w-5 h-5 mr-2 text-[#3182F6]" /> 활동 타임라인
-              </h4>
-
-              <form
-                onSubmit={handleAddActivity}
-                className="bg-[#F9FAFB] rounded-xl p-3 mb-4 flex gap-2 items-stretch border border-gray-100"
-              >
-                <select
-                  value={newActivity.type}
-                  onChange={(e) =>
-                    setNewActivity({
-                      ...newActivity,
-                      type: e.target.value as ActivityType,
-                    })
-                  }
-                  className="bg-white border border-gray-200 rounded-lg px-3 text-xs font-bold cursor-pointer"
-                >
-                  {ACTIVE_ACTIVITY_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {ACTIVITY_LABELS[t]}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  placeholder="활동 내용 (예: 첫 통화. 자녀 보험 관심 있음)"
-                  value={newActivity.content}
-                  onChange={(e) =>
-                    setNewActivity({ ...newActivity, content: e.target.value })
-                  }
-                  className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
-                />
-                <button
-                  type="submit"
-                  className="bg-[#3182F6] text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-600 flex items-center"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </form>
-
-              <div className="space-y-3 max-h-60 overflow-y-auto pr-1 no-scrollbar">
-                {dealActivities.length === 0 ? (
-                  <p className="text-xs text-[#8B95A1] text-center py-6 bg-gray-50 rounded-xl border border-gray-100">
-                    아직 기록된 활동이 없습니다
-                  </p>
-                ) : (
-                  dealActivities.map((act) => {
-                    const author = members.find((m) => m.id === act.author_id);
-                    return (
-                      <div
-                        key={act.id}
-                        className="bg-white border border-gray-100 rounded-xl p-3 flex gap-3 items-start"
-                      >
-                        <div className="bg-blue-50 text-[#3182F6] text-[10px] font-bold px-2 py-1 rounded-md whitespace-nowrap shrink-0">
-                          {ACTIVITY_LABELS[act.activity_type]}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-[#191F28] font-medium leading-relaxed break-words">
-                            {act.content}
-                          </p>
-                          <p className="text-[10px] text-[#8B95A1] mt-1 font-medium">
-                            {author?.name ?? '알 수 없음'} ·{' '}
-                            {new Date(act.created_at).toLocaleString('ko-KR', {
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
           </div>
         </div>
       )}

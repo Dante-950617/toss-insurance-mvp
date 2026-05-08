@@ -38,8 +38,9 @@ import {
   getDwellDays,
   isStaleDeal,
 } from '@/lib/utils';
-import { createTask, toggleTask, deleteTask } from '@/lib/actions';
+import { createTask, toggleTask, deleteTask, updateDealStage } from '@/lib/actions';
 import { useToast } from '@/components/Toast';
+import type { DealStage } from '@/lib/types';
 
 type AutoTaskType =
   | 'today_contact'
@@ -162,6 +163,18 @@ export default function DashboardClient({
         setTasks((prev) => [...prev, original]);
         showToast(`삭제 실패: ${res.error}`);
       }
+    });
+  };
+
+  const handleQuickApproval = (
+    dealId: string,
+    newStage: DealStage,
+    label: string
+  ) => {
+    startTransition(async () => {
+      const res = await updateDealStage(dealId, newStage);
+      if (res.error) showToast(`처리 실패: ${res.error}`);
+      else showToast(`${label} 처리되었습니다.`);
     });
   };
 
@@ -585,10 +598,10 @@ export default function DashboardClient({
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1 no-scrollbar">
                   {autoTasks.map((task) => {
                     const meta = autoTaskMeta[task.type];
+                    const isApproval = task.type === 'pending_approval';
                     return (
-                      <Link
+                      <div
                         key={task.key}
-                        href={`/pipeline?deal=${task.dealId}`}
                         className={`flex items-start gap-2 p-2.5 rounded-xl border border-gray-100 ${meta.bg} hover:border-[#3182F6] transition-colors group`}
                       >
                         <span
@@ -596,16 +609,44 @@ export default function DashboardClient({
                         >
                           {meta.emoji} {meta.label}
                         </span>
-                        <div className="flex-1 min-w-0">
+                        <Link
+                          href={`/pipeline?deal=${task.dealId}`}
+                          className="flex-1 min-w-0"
+                        >
                           <p className="text-sm font-bold text-[#191F28] truncate group-hover:text-[#3182F6] transition-colors">
                             {task.customerName}
                           </p>
                           <p className="text-[10px] font-medium text-[#8B95A1] truncate">
                             {task.sub}
                           </p>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-1 group-hover:text-[#3182F6]" />
-                      </Link>
+                        </Link>
+                        {isApproval && currentUser.role === 'MANAGER' ? (
+                          <div className="flex gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleQuickApproval(task.dealId, '계약완료', '승인')
+                              }
+                              className="bg-[#3182F6] text-white text-[10px] font-extrabold px-2 py-1 rounded-md hover:bg-blue-600 transition-colors"
+                              title="승인"
+                            >
+                              ✓ 승인
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleQuickApproval(task.dealId, '상담중', '반려')
+                              }
+                              className="bg-white border border-gray-200 text-[#4E5968] text-[10px] font-extrabold px-2 py-1 rounded-md hover:bg-gray-50 transition-colors"
+                              title="반려"
+                            >
+                              ↩ 반려
+                            </button>
+                          </div>
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-1 group-hover:text-[#3182F6]" />
+                        )}
+                      </div>
                     );
                   })}
                 </div>
