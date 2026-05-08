@@ -43,13 +43,13 @@ export default function NavBar({
 
   return (
     <nav className="bg-white border-b border-gray-100 px-6 py-4 mb-6 sticky top-0 z-40 shadow-sm">
-      <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
-        <Link href="/dashboard" className="font-extrabold text-xl text-[#191F28] tracking-tight flex items-center">
-          <TrendingUp className="w-6 h-6 mr-2 text-[#3182F6]" />
+      <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4">
+        <Link href="/dashboard" className="font-extrabold text-lg md:text-xl text-[#191F28] tracking-tight flex items-center shrink-0">
+          <TrendingUp className="w-5 h-5 md:w-6 md:h-6 mr-2 text-[#3182F6]" />
           Toss Insurance
         </Link>
-        <div className="flex items-center gap-4">
-          <div className="flex gap-1.5 p-1.5 bg-[#F2F4F6] rounded-2xl">
+        <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+          <div className="flex gap-1.5 p-1.5 bg-[#F2F4F6] rounded-2xl overflow-x-auto no-scrollbar flex-1 sm:flex-initial">
             {tabs
               .filter((t) => !t.managerOnly || role === 'MANAGER')
               .map((t) => {
@@ -60,7 +60,7 @@ export default function NavBar({
                   <Link
                     key={t.href}
                     href={t.href}
-                    className={`relative px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center ${
+                    className={`relative shrink-0 px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center whitespace-nowrap ${
                       active
                         ? 'bg-white text-[#191F28] shadow-sm'
                         : 'text-[#4E5968] hover:text-[#191F28]'

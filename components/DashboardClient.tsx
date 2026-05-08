@@ -324,10 +324,10 @@ export default function DashboardClient({
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#191F28] tracking-tight flex items-center">
+          <h1 className="text-xl md:text-2xl font-bold text-[#191F28] tracking-tight flex items-center flex-wrap">
             {currentUser.role === 'MANAGER' ? (
               <select
-                className="bg-transparent border-none text-2xl font-bold text-[#3182F6] cursor-pointer outline-none focus:ring-0 mr-2 p-0"
+                className="bg-transparent border-none text-xl md:text-2xl font-bold text-[#3182F6] cursor-pointer outline-none focus:ring-0 mr-2 p-0"
                 value={activeMemberId}
                 onChange={(e) => setActiveMemberId(e.target.value)}
               >

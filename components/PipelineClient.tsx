@@ -77,6 +77,7 @@ export default function PipelineClient({
   const [newCustomer, setNewCustomer] = useState('');
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<DealStage | 'ALL'>('ALL');
+  const [mobileStage, setMobileStage] = useState<DealStage>('진행대기');
 
   const [reasonModalDeal, setReasonModalDeal] = useState<Deal | null>(null);
   const [failureReason, setFailureReason] = useState('');
@@ -298,14 +299,139 @@ export default function PipelineClient({
 
   const canManageDeal = (d: Deal) => isManager || d.member_id === currentUser.id;
 
+  const renderCard = (deal: Deal) => {
+    const dwellDays = getDwellDays(deal.last_updated);
+    const stage = deal.stage;
+    const isStale =
+      dwellDays >= 5 && ['진행대기', '상담중', '클로징(승인대기)'].includes(stage);
+    const upcomingContact =
+      deal.next_contact_date &&
+      new Date(deal.next_contact_date) >= new Date(Date.now() - 86400000);
+
+    return (
+      <div
+        key={deal.id}
+        onClick={() => setDetailDeal({ ...deal })}
+        className={`bg-white rounded-[16px] p-4 shadow-sm border ${
+          isStale ? 'border-red-300' : 'border-gray-100'
+        } hover:border-[#3182F6] hover:shadow-md transition-all group cursor-pointer`}
+      >
+        <div className="flex flex-col mb-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <span className="font-bold text-sm text-[#191F28] truncate">
+              {deal.customer_name}
+            </span>
+            {canManageDeal(deal) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmDeleteDealId(deal.id);
+                }}
+                className="text-gray-300 hover:text-red-500 transition-colors p-1 -m-1 shrink-0"
+                aria-label="딜 삭제"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="relative w-full" onClick={(e) => e.stopPropagation()}>
+            {!isManager && (stage === '클로징(승인대기)' || stage === '계약완료') ? (
+              <span className="text-[10px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold block w-fit">
+                승인 진행중
+              </span>
+            ) : (
+              <select
+                className="w-full text-xs border border-gray-200 rounded-lg p-1.5 outline-none focus:border-[#3182F6] text-[#4E5968] bg-white cursor-pointer font-bold hover:bg-gray-50 transition-colors"
+                value={deal.stage}
+                onChange={(e) => handleStageSelect(deal, e.target.value)}
+              >
+                {STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {deal.product_type && (
+            <span className="inline-flex items-center text-[11px] bg-[#F2F4F6] text-[#4E5968] px-2 py-1 rounded-md font-medium">
+              <FileText className="w-3 h-3 mr-1 text-gray-400" /> {deal.product_type}
+            </span>
+          )}
+          {deal.deal_value > 0 && (
+            <span className="inline-flex items-center text-[11px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold">
+              계약 {formatCurrency(deal.deal_value)}원
+            </span>
+          )}
+          {deal.monthly_premium > 0 && (
+            <span className="inline-flex items-center text-[11px] bg-green-50 text-green-700 px-2 py-1 rounded-md font-medium">
+              <CreditCard className="w-3 h-3 mr-1" /> 월 {formatCurrency(deal.monthly_premium)}
+            </span>
+          )}
+          {deal.phone && (
+            <span className="inline-flex items-center text-[11px] bg-purple-50 text-purple-700 px-2 py-1 rounded-md font-medium">
+              <Phone className="w-3 h-3 mr-1" /> {deal.phone}
+            </span>
+          )}
+        </div>
+
+        {upcomingContact && (
+          <div className="text-[11px] font-bold bg-orange-50 text-orange-600 px-2 py-1 rounded-md flex items-center w-fit mb-2">
+            <CalendarClock className="w-3 h-3 mr-1" /> 다음 연락: {deal.next_contact_date}
+          </div>
+        )}
+
+        <div className="flex flex-col mt-2 border-t border-gray-50 pt-2 space-y-1.5">
+          <div className="text-[10px] text-gray-400 font-medium">등록: {deal.date}</div>
+          {['진행대기', '상담중', '클로징(승인대기)'].includes(stage) && (
+            <div
+              className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center w-fit ${
+                isStale ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
+              }`}
+            >
+              {isStale ? (
+                <>
+                  <AlertCircle className="w-3 h-3 mr-1" /> {dwellDays}일째 방치됨
+                </>
+              ) : (
+                <>
+                  <Timer className="w-3 h-3 mr-1" /> {dwellDays}일째 체류중
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {deal.stage === '실패' && deal.reason && (
+          <div className="bg-red-50 text-red-600 text-[11px] font-bold p-2.5 rounded-xl break-words line-clamp-2 mt-2">
+            사유: {deal.reason}
+          </div>
+        )}
+
+        {deal.manager_comment && (
+          <div className="mt-3 bg-blue-50/50 text-[#191F28] text-[11px] font-medium p-3 rounded-xl border border-blue-100">
+            <span className="font-bold mb-1 text-[#3182F6] flex items-center">
+              <ShieldCheck className="w-3 h-3 mr-1" />
+              지점장 피드백
+            </span>
+            {deal.manager_comment}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-4 flex flex-col h-[calc(100vh-140px)]">
+    <div className="space-y-4 flex flex-col lg:h-[calc(100vh-140px)]">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-[#191F28] tracking-tight flex items-center">
+          <h1 className="text-xl md:text-2xl font-bold text-[#191F28] tracking-tight flex items-center flex-wrap">
             {isManager && repMembers.length > 0 ? (
               <select
-                className="bg-transparent border-none text-2xl font-bold text-[#3182F6] cursor-pointer outline-none mr-2 p-0"
+                className="bg-transparent border-none text-xl md:text-2xl font-bold text-[#3182F6] cursor-pointer outline-none mr-2 p-0"
                 value={activeMemberId}
                 onChange={(e) => setActiveMemberId(e.target.value)}
               >
@@ -322,7 +448,7 @@ export default function PipelineClient({
             )}
             매니저의 딜 파이프라인
           </h1>
-          <p className="text-[#4E5968] mt-1 text-sm font-medium">
+          <p className="text-[#4E5968] mt-1 text-xs md:text-sm font-medium">
             고객 미팅 진행 상황 및 체류 시간(업데이트 주기)을 세밀하게 관리하세요.
           </p>
         </div>
@@ -368,7 +494,50 @@ export default function PipelineClient({
         </select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 pb-4 flex-1 min-h-0">
+      {/* Mobile: 단계 탭 + 단일 리스트 */}
+      <div className="lg:hidden flex flex-col flex-1 min-h-0 gap-3">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar p-1 bg-white rounded-2xl shadow-sm border border-gray-100 shrink-0">
+          {STAGES.map((s) => {
+            const count = filteredDeals.filter((d) => d.stage === s).length;
+            const active = mobileStage === s;
+            return (
+              <button
+                key={s}
+                onClick={() => setMobileStage(s)}
+                className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-colors ${
+                  active ? 'bg-[#191F28] text-white' : 'bg-transparent text-[#4E5968]'
+                }`}
+              >
+                {s === '계약완료' && <CheckCircle className="w-3 h-3" />}
+                {s === '클로징(승인대기)' && <ShieldCheck className="w-3 h-3" />}
+                {s === '실패' && <XCircle className="w-3 h-3" />}
+                {s}
+                <span
+                  className={`text-[10px] font-extrabold px-1.5 rounded-md ${
+                    active ? 'bg-white/20 text-white' : 'bg-[#F2F4F6] text-[#8B95A1]'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="space-y-3 flex-1 overflow-y-auto pb-4 no-scrollbar">
+          {filteredDeals
+            .filter((d) => d.stage === mobileStage)
+            .map((deal) => renderCard(deal))}
+          {filteredDeals.filter((d) => d.stage === mobileStage).length === 0 && (
+            <div className="text-center text-[#8B95A1] text-xs py-12 border-2 border-dashed border-gray-200 rounded-[16px] font-medium bg-white">
+              해당되는 딜이 없습니다
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Desktop: 5단계 칸반 */}
+      <div className="hidden lg:grid grid-cols-5 gap-4 pb-4 flex-1 min-h-0">
         {STAGES.map((stage) => (
           <div
             key={stage}
@@ -393,138 +562,7 @@ export default function PipelineClient({
             <div className="space-y-3 flex-1 overflow-y-auto pb-2 pr-1 no-scrollbar">
               {filteredDeals
                 .filter((m) => m.stage === stage)
-                .map((deal) => {
-                  const dwellDays = getDwellDays(deal.last_updated);
-                  const isStale =
-                    dwellDays >= 5 &&
-                    ['진행대기', '상담중', '클로징(승인대기)'].includes(stage);
-                  const upcomingContact =
-                    deal.next_contact_date &&
-                    new Date(deal.next_contact_date) >= new Date(Date.now() - 86400000);
-
-                  return (
-                    <div
-                      key={deal.id}
-                      onClick={() => setDetailDeal({ ...deal })}
-                      className={`bg-white rounded-[16px] p-4 shadow-sm border ${
-                        isStale ? 'border-red-300' : 'border-gray-100'
-                      } hover:border-[#3182F6] hover:shadow-md transition-all group cursor-pointer`}
-                    >
-                      <div className="flex flex-col mb-3 space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="font-bold text-sm text-[#191F28] truncate">
-                            {deal.customer_name}
-                          </span>
-                          {canManageDeal(deal) && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setConfirmDeleteDealId(deal.id);
-                              }}
-                              className="text-gray-300 hover:text-red-500 transition-colors p-1 -m-1 shrink-0"
-                              aria-label="딜 삭제"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        <div className="relative w-full" onClick={(e) => e.stopPropagation()}>
-                          {!isManager &&
-                          (stage === '클로징(승인대기)' || stage === '계약완료') ? (
-                            <span className="text-[10px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold block w-fit">
-                              승인 진행중
-                            </span>
-                          ) : (
-                            <select
-                              className="w-full text-xs border border-gray-200 rounded-lg p-1.5 outline-none focus:border-[#3182F6] text-[#4E5968] bg-white cursor-pointer font-bold hover:bg-gray-50 transition-colors"
-                              value={deal.stage}
-                              onChange={(e) => handleStageSelect(deal, e.target.value)}
-                            >
-                              {STAGES.map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {deal.product_type && (
-                          <span className="inline-flex items-center text-[11px] bg-[#F2F4F6] text-[#4E5968] px-2 py-1 rounded-md font-medium">
-                            <FileText className="w-3 h-3 mr-1 text-gray-400" />{' '}
-                            {deal.product_type}
-                          </span>
-                        )}
-                        {deal.deal_value > 0 && (
-                          <span className="inline-flex items-center text-[11px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold">
-                            계약 {formatCurrency(deal.deal_value)}원
-                          </span>
-                        )}
-                        {deal.monthly_premium > 0 && (
-                          <span className="inline-flex items-center text-[11px] bg-green-50 text-green-700 px-2 py-1 rounded-md font-medium">
-                            <CreditCard className="w-3 h-3 mr-1" /> 월{' '}
-                            {formatCurrency(deal.monthly_premium)}
-                          </span>
-                        )}
-                        {deal.phone && (
-                          <span className="inline-flex items-center text-[11px] bg-purple-50 text-purple-700 px-2 py-1 rounded-md font-medium">
-                            <Phone className="w-3 h-3 mr-1" /> {deal.phone}
-                          </span>
-                        )}
-                      </div>
-
-                      {upcomingContact && (
-                        <div className="text-[11px] font-bold bg-orange-50 text-orange-600 px-2 py-1 rounded-md flex items-center w-fit mb-2">
-                          <CalendarClock className="w-3 h-3 mr-1" /> 다음 연락:{' '}
-                          {deal.next_contact_date}
-                        </div>
-                      )}
-
-                      <div className="flex flex-col mt-2 border-t border-gray-50 pt-2 space-y-1.5">
-                        <div className="text-[10px] text-gray-400 font-medium">
-                          등록: {deal.date}
-                        </div>
-                        {['진행대기', '상담중', '클로징(승인대기)'].includes(stage) && (
-                          <div
-                            className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center w-fit ${
-                              isStale
-                                ? 'bg-red-50 text-red-600'
-                                : 'bg-gray-50 text-gray-500'
-                            }`}
-                          >
-                            {isStale ? (
-                              <>
-                                <AlertCircle className="w-3 h-3 mr-1" /> {dwellDays}일째 방치됨
-                              </>
-                            ) : (
-                              <>
-                                <Timer className="w-3 h-3 mr-1" /> {dwellDays}일째 체류중
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {deal.stage === '실패' && deal.reason && (
-                        <div className="bg-red-50 text-red-600 text-[11px] font-bold p-2.5 rounded-xl break-words line-clamp-2 mt-2">
-                          사유: {deal.reason}
-                        </div>
-                      )}
-
-                      {deal.manager_comment && (
-                        <div className="mt-3 bg-blue-50/50 text-[#191F28] text-[11px] font-medium p-3 rounded-xl border border-blue-100">
-                          <span className="font-bold mb-1 text-[#3182F6] flex items-center">
-                            <ShieldCheck className="w-3 h-3 mr-1" />
-                            지점장 피드백
-                          </span>
-                          {deal.manager_comment}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                .map((deal) => renderCard(deal))}
 
               {filteredDeals.filter((m) => m.stage === stage).length === 0 && (
                 <div className="text-center text-[#8B95A1] text-xs py-10 border-2 border-dashed border-gray-200 rounded-[16px] font-medium mt-2">
@@ -537,8 +575,8 @@ export default function PipelineClient({
       </div>
 
       {detailDeal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[24px] p-8 w-full max-w-2xl shadow-xl relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center sm:justify-center z-50 sm:p-4">
+          <div className="bg-white rounded-t-[24px] sm:rounded-[24px] p-6 sm:p-8 w-full max-w-2xl shadow-xl relative max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setDetailDeal(null)}
               className="absolute top-6 right-6 text-gray-400 hover:text-gray-700 z-10"

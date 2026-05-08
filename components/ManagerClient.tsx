@@ -182,7 +182,7 @@ export default function ManagerClient({
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-[#191F28] tracking-tight">조직 및 KPI 세팅</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-[#191F28] tracking-tight">조직 및 KPI 세팅</h1>
         <p className="text-[#4E5968] mt-1 text-sm font-medium">
           팀 전체의 목표를 설정하고, 담당자별 권한과 지표를 관리하세요.
         </p>
