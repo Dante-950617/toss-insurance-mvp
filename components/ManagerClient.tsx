@@ -85,6 +85,11 @@ export default function ManagerClient({
       current_sales: editMember.current_sales,
       conversion_rate: editMember.conversion_rate,
       lead_time: editMember.lead_time,
+      license_type: editMember.license_type ?? '',
+      license_number: editMember.license_number ?? '',
+      license_expiry: editMember.license_expiry ?? null,
+      hire_date: editMember.hire_date ?? null,
+      phone: editMember.phone ?? '',
     };
     const id = editMember.id;
     setEditMember(null);
@@ -546,6 +551,91 @@ export default function ManagerClient({
                 }
               />
             </div>
+
+            <div className="border-t border-gray-100 pt-5">
+              <h4 className="text-sm font-bold text-[#191F28] mb-3">
+                보험설계사 정보
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    자격증 종류
+                  </label>
+                  <select
+                    value={editMember.license_type ?? ''}
+                    onChange={(e) =>
+                      setEditMember({ ...editMember, license_type: e.target.value })
+                    }
+                    className="w-full border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                  >
+                    <option value="">선택</option>
+                    <option value="LIFE">생명보험</option>
+                    <option value="NON_LIFE">손해보험</option>
+                    <option value="VARIABLE">변액보험</option>
+                    <option value="LIFE_NON_LIFE">생명+손해</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    자격증 번호
+                  </label>
+                  <input
+                    type="text"
+                    value={editMember.license_number ?? ''}
+                    onChange={(e) =>
+                      setEditMember({
+                        ...editMember,
+                        license_number: e.target.value,
+                      })
+                    }
+                    className="w-full border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-[#3182F6] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    자격증 만료일
+                  </label>
+                  <input
+                    type="date"
+                    value={editMember.license_expiry ?? ''}
+                    onChange={(e) =>
+                      setEditMember({
+                        ...editMember,
+                        license_expiry: e.target.value || null,
+                      })
+                    }
+                    className="w-full border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-[#3182F6] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    입사일
+                  </label>
+                  <input
+                    type="date"
+                    value={editMember.hire_date ?? ''}
+                    onChange={(e) =>
+                      setEditMember({
+                        ...editMember,
+                        hire_date: e.target.value || null,
+                      })
+                    }
+                    className="w-full border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-[#3182F6] outline-none"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Field
+                    label="전화번호"
+                    type="text"
+                    value={editMember.phone ?? ''}
+                    onChange={(v) =>
+                      setEditMember({ ...editMember, phone: String(v) })
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
             <ModalButtons onCancel={() => setEditMember(null)} />
           </form>
         </Modal>

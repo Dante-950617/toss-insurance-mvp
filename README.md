@@ -153,3 +153,30 @@ update profiles set role='MANAGER', status='ACTIVE' where email='YOUR_EMAIL';
 
 **Q. 권한 회수했는데 그 사용자가 계속 접속됨**
 A. 활성 세션 무효화는 미들웨어가 다음 요청에서 `/pending` 으로 보냅니다. 즉시 로그아웃까지 강제하려면 Supabase Auth > Users > 해당 유저 → 우측 메뉴에서 세션 강제 만료.
+
+---
+
+## 7. 알림(이메일/푸시) 셋업 가이드
+
+이메일/카톡 알림은 별도 셋업이 필요합니다. 두 가지 방법:
+
+### 옵션 A. Supabase pg_cron + Edge Function (권장)
+1. Supabase 대시보드 → **Database > Extensions** → `pg_cron` 활성화
+2. **Edge Functions** 에서 `daily-notifications` 함수 작성 (이메일 발송 SMTP 또는 Slack/Kakao webhook 호출)
+3. SQL Editor 에서 cron 등록:
+   ```sql
+   select cron.schedule(
+     'daily-contact-reminders',
+     '0 0 * * *',  -- 매일 오전 9시 (UTC 0시 = KST 9시)
+     $$ select net.http_post('https://YOUR_PROJECT.supabase.co/functions/v1/daily-notifications', '{}', '{}', '{"Authorization": "Bearer YOUR_ANON_KEY"}'::jsonb) $$
+   );
+   ```
+
+### 옵션 B. 외부 cron 서비스 (간단)
+- [cron-job.org](https://cron-job.org) 또는 GitHub Actions schedule 로 매일 한 번 우리 사이트의 알림 endpoint 호출
+- Next.js 에서 `/api/notify` route handler 작성하고, 이 안에서 다음 컨택일이 D-1 인 딜들 조회 → 메일/슬랙 발송
+
+### 발송 대상 추천
+- 영업맨: 다음 컨택 예정일 = 오늘 인 딜 목록
+- 매니저: 새로 들어온 클로징(승인대기) 딜 목록
+- 매니저: 자격증 만료 D-30 인 팀원 명단

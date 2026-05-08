@@ -220,6 +220,11 @@ export async function updateMemberKpi(
     current_sales?: number;
     conversion_rate?: number;
     lead_time?: number;
+    license_type?: string;
+    license_number?: string;
+    license_expiry?: string | null;
+    hire_date?: string | null;
+    phone?: string;
   }
 ) {
   const { supabase } = await requireActiveManager();
@@ -227,6 +232,43 @@ export async function updateMemberKpi(
   if (error) return { error: error.message };
   revalidatePath('/manager');
   revalidatePath('/dashboard');
+  return { success: true };
+}
+
+// -------------------- Sales Scripts --------------------
+export async function createScript(payload: {
+  title: string;
+  category: string;
+  content: string;
+}) {
+  const { supabase, user } = await requireActiveManager();
+  const { error } = await supabase.from('sales_scripts').insert({
+    title: payload.title.trim(),
+    category: payload.category || 'general',
+    content: payload.content.trim(),
+    created_by: user.id,
+  });
+  if (error) return { error: error.message };
+  revalidatePath('/scripts');
+  return { success: true };
+}
+
+export async function updateScript(
+  id: string,
+  patch: { title?: string; category?: string; content?: string }
+) {
+  const { supabase } = await requireActiveManager();
+  const { error } = await supabase.from('sales_scripts').update(patch).eq('id', id);
+  if (error) return { error: error.message };
+  revalidatePath('/scripts');
+  return { success: true };
+}
+
+export async function deleteScript(id: string) {
+  const { supabase } = await requireActiveManager();
+  const { error } = await supabase.from('sales_scripts').delete().eq('id', id);
+  if (error) return { error: error.message };
+  revalidatePath('/scripts');
   return { success: true };
 }
 
