@@ -43,7 +43,7 @@ export default function NavBar({
 
   return (
     <nav className="bg-white border-b border-gray-100 px-6 py-4 mb-6 sticky top-0 z-40 shadow-sm">
-      <div className="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+      <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
         <Link href="/dashboard" className="font-extrabold text-xl text-[#191F28] tracking-tight flex items-center">
           <TrendingUp className="w-6 h-6 mr-2 text-[#3182F6]" />
           Toss Insurance

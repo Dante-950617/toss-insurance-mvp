@@ -45,7 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           pendingApprovals={pendingApprovals}
           pendingUsers={pendingUsers}
         />
-        <div className="max-w-5xl mx-auto px-6">{children}</div>
+        <div className="max-w-screen-2xl mx-auto px-6">{children}</div>
       </div>
     </ToastProvider>
   );
