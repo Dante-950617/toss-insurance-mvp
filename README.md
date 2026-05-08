@@ -3,6 +3,8 @@
 영업 담당자(REP)와 지점장(MANAGER)을 위한 토스 스타일 CRM 대시보드.
 Next.js 14 (App Router) + Tailwind + Supabase(Postgres + Auth + RLS) + Vercel.
 
+**인증**: 이메일/비밀번호 (Google OAuth 등 외부 IdP 의존성 없음)
+
 ---
 
 ## 1. 사전 준비 (사용자가 직접 해야 하는 작업)
@@ -22,29 +24,14 @@ Next.js 14 (App Router) + Tailwind + Supabase(Postgres + Auth + RLS) + Vercel.
 2. 본 저장소의 [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql) 내용을 전체 복사 → 붙여넣기 → **Run**
 3. 에러 없이 `Success. No rows returned` 확인
 
-### 1-3. Google OAuth 설정
+### 1-3. 이메일 인증 끄기 (권장)
 
-#### (A) Google Cloud Console
-1. https://console.cloud.google.com 접속 → 신규 프로젝트 생성 (예: `toss-insurance`)
-2. 좌측 메뉴 → **APIs & Services** → **OAuth consent screen**
-   - User Type: **External** 선택 → Create
-   - App name: `Toss Insurance`, User support email: 본인 이메일
-   - Scopes: 기본 그대로 → Save
-   - Test users: 일단 본인 이메일 추가 (배포 후에는 Publish 가능)
-3. 좌측 메뉴 → **Credentials** → **+ Create Credentials** → **OAuth client ID**
-   - Application type: **Web application**
-   - Name: `Toss Insurance Web`
-   - **Authorized redirect URIs** 에 다음을 추가:
-     ```
-     https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback
-     ```
-     (Supabase 대시보드 > Authentication > Providers > Google 탭 하단의 "Callback URL" 그대로 복사)
-4. 생성 완료 → **Client ID**, **Client Secret** 복사
+승인 플로우(PENDING → ACTIVE)가 이미 있으므로 별도 이메일 인증은 불필요합니다.
 
-#### (B) Supabase에 등록
-1. Supabase 대시보드 → **Authentication** → **Providers** → **Google**
-2. **Enable** 토글 ON
-3. 위에서 받은 Client ID, Client Secret 붙여넣기 → **Save**
+1. Supabase 대시보드 → **Authentication** → **Providers** → **Email** (또는 좌측 **Authentication > Sign In / Up** 화면)
+2. **Confirm email** 토글을 **OFF** 로 변경 → Save
+
+> 켜두고 싶다면 그대로 둬도 됩니다. 가입 후 이메일에 도착하는 인증 링크를 클릭해야 첫 로그인이 가능해집니다.
 
 ### 1-4. Site URL 등록 (배포 후 필수)
 
@@ -75,9 +62,9 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-`http://localhost:3000` 접속 → Google 로그인.
+`http://localhost:3000` 접속 → 회원가입(첫 사용자) → 로그인.
 
-> **⚠️ 첫 로그인한 사용자는 자동으로 MANAGER + ACTIVE 상태가 됩니다.**
+> **⚠️ 첫 가입자가 자동으로 MANAGER + ACTIVE 상태가 됩니다.**
 > 이후 가입자는 PENDING + REP 로 들어와 첫 사용자(지점장)가 승인해야 합니다.
 
 ---
@@ -107,7 +94,6 @@ gh repo create toss-insurance-mvp --private --source=. --push
 5. 배포 완료 후 도메인 받으면:
    - `NEXT_PUBLIC_SITE_URL` 환경변수 갱신 → **Redeploy**
    - Supabase **Authentication > URL Configuration** 에 Vercel 도메인을 Site URL/Redirect URL 로 추가
-   - Google Cloud Console **Authorized redirect URIs** 에는 변경 불필요 (Supabase callback 만 등록되어 있음)
 
 ---
 

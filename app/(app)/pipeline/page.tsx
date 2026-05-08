@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import PipelineClient from '@/components/PipelineClient';
-import type { Profile, Deal } from '@/lib/types';
+import type { Profile, Deal, DealActivity } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,11 +20,16 @@ export default async function PipelinePage() {
   const { data: members } = await supabase
     .from('profiles')
     .select('*')
-    .eq('role', 'REP')
+    .eq('status', 'ACTIVE')
     .order('name');
 
   const { data: deals } = await supabase
     .from('deals')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  const { data: activities } = await supabase
+    .from('deal_activities')
     .select('*')
     .order('created_at', { ascending: false });
 
@@ -33,6 +38,7 @@ export default async function PipelinePage() {
       currentUser={profileData!}
       members={(members ?? []) as Profile[]}
       initialDeals={(deals ?? []) as Deal[]}
+      initialActivities={(activities ?? []) as DealActivity[]}
     />
   );
 }

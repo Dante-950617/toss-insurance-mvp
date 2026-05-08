@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import ManagerClient from '@/components/ManagerClient';
 import { calcMember } from '@/lib/utils';
-import type { Profile, TeamSettings } from '@/lib/types';
+import type { Profile, TeamSettings, MemberInvitation } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,12 +32,18 @@ export default async function ManagerPage() {
     .eq('id', 1)
     .single<TeamSettings>();
 
+  const { data: invitations } = await supabase
+    .from('member_invitations')
+    .select('*')
+    .order('invited_at', { ascending: false });
+
   const members = ((allMembers ?? []) as Profile[]).map(calcMember);
 
   return (
     <ManagerClient
       currentUser={profileData}
       members={members}
+      invitations={(invitations ?? []) as MemberInvitation[]}
       teamSettings={
         teamSettings ?? {
           id: 1,

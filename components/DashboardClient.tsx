@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useTransition, type FormEvent } from 'react';
 import Link from 'next/link';
 import {
   Target,
@@ -19,14 +19,26 @@ import {
   XCircle,
   MessageSquare,
   ShieldCheck,
+  CheckSquare,
+  Square,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import type { Profile, CalculatedMember, TeamSettings, Deal } from '@/lib/types';
+import type {
+  Profile,
+  CalculatedMember,
+  TeamSettings,
+  Deal,
+  Task,
+} from '@/lib/types';
 import {
   formatCurrency,
   formatDateKR,
   buildTeamAggregate,
   getDwellDays,
 } from '@/lib/utils';
+import { createTask, toggleTask, deleteTask } from '@/lib/actions';
+import { useToast } from '@/components/Toast';
 
 const GrowthIndicator = ({
   label,
@@ -65,15 +77,86 @@ export default function DashboardClient({
   members,
   teamSettings,
   deals,
+  initialTasks,
 }: {
   currentUser: Profile;
   members: CalculatedMember[];
   teamSettings: TeamSettings;
   deals: Deal[];
+  initialTasks: Task[];
 }) {
+  const { showToast } = useToast();
+  const [, startTransition] = useTransition();
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDate, setNewTaskDate] = useState('');
+
   const [activeMemberId, setActiveMemberId] = useState<string>(
     currentUser.role === 'MANAGER' ? 'ALL' : currentUser.id
   );
+
+  const handleAddTask = (e: FormEvent) => {
+    e.preventDefault();
+    const title = newTaskTitle.trim();
+    if (!title) return;
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Task = {
+      id: tempId,
+      user_id: currentUser.id,
+      deal_id: null,
+      title,
+      due_date: newTaskDate || null,
+      done: false,
+      created_at: new Date().toISOString(),
+    };
+    setTasks((prev) => [optimistic, ...prev]);
+    setNewTaskTitle('');
+    setNewTaskDate('');
+    startTransition(async () => {
+      const res = await createTask(title, newTaskDate || null);
+      if (res.error) {
+        setTasks((prev) => prev.filter((t) => t.id !== tempId));
+        showToast(`등록 실패: ${res.error}`);
+      }
+    });
+  };
+
+  const handleToggleTask = (task: Task) => {
+    const newDone = !task.done;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, done: newDone } : t))
+    );
+    startTransition(async () => {
+      const res = await toggleTask(task.id, newDone);
+      if (res.error) {
+        setTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? { ...t, done: task.done } : t))
+        );
+        showToast(`변경 실패: ${res.error}`);
+      }
+    });
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    const original = tasks.find((t) => t.id === taskId);
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    startTransition(async () => {
+      const res = await deleteTask(taskId);
+      if (res.error && original) {
+        setTasks((prev) => [...prev, original]);
+        showToast(`삭제 실패: ${res.error}`);
+      }
+    });
+  };
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const sortedTasks = [...tasks].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (!a.due_date && b.due_date) return 1;
+    if (a.due_date && !b.due_date) return -1;
+    if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+    return 0;
+  });
 
   const teamAggregate = useMemo(
     () => buildTeamAggregate(members, teamSettings),
@@ -360,6 +443,115 @@ export default function DashboardClient({
         </div>
 
         <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-[90px]">
+          <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-base font-bold text-[#191F28] flex items-center">
+                <CheckSquare className="w-5 h-5 mr-2 text-[#3182F6]" />
+                나의 할 일
+              </h3>
+              <span className="text-xs font-bold text-[#8B95A1]">
+                {tasks.filter((t) => !t.done).length}건 남음
+              </span>
+            </div>
+
+            <form onSubmit={handleAddTask} className="space-y-2 mb-4">
+              <input
+                type="text"
+                placeholder="할 일 입력 (예: 김토스 고객님 연락)"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                className="w-full bg-[#F2F4F6] border-transparent rounded-xl py-2.5 px-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] focus:bg-white outline-none transition-all"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={newTaskDate}
+                  onChange={(e) => setNewTaskDate(e.target.value)}
+                  className="flex-1 bg-[#F2F4F6] border-transparent rounded-xl py-2.5 px-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] focus:bg-white outline-none transition-all"
+                />
+                <button
+                  type="submit"
+                  disabled={!newTaskTitle.trim()}
+                  className="bg-[#191F28] hover:bg-black disabled:opacity-40 text-white px-4 rounded-xl text-sm font-bold flex items-center transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1 no-scrollbar">
+              {sortedTasks.length === 0 ? (
+                <p className="text-xs text-[#8B95A1] text-center py-6 bg-gray-50 rounded-xl border border-gray-100 font-medium">
+                  등록된 할 일이 없습니다
+                </p>
+              ) : (
+                sortedTasks.map((task) => {
+                  const isOverdue =
+                    !task.done && task.due_date && task.due_date < todayStr;
+                  const isToday = task.due_date === todayStr;
+                  return (
+                    <div
+                      key={task.id}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl border ${
+                        task.done
+                          ? 'bg-gray-50 border-gray-100 opacity-60'
+                          : isOverdue
+                            ? 'bg-red-50/50 border-red-100'
+                            : isToday
+                              ? 'bg-blue-50/40 border-blue-100'
+                              : 'bg-white border-gray-100'
+                      } transition-colors group`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTask(task)}
+                        className={`shrink-0 ${
+                          task.done ? 'text-[#3182F6]' : 'text-gray-300 hover:text-[#3182F6]'
+                        }`}
+                      >
+                        {task.done ? (
+                          <CheckSquare className="w-5 h-5" />
+                        ) : (
+                          <Square className="w-5 h-5" />
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={`text-sm font-bold text-[#191F28] truncate ${
+                            task.done ? 'line-through' : ''
+                          }`}
+                        >
+                          {task.title}
+                        </p>
+                        {task.due_date && (
+                          <p
+                            className={`text-[10px] font-bold mt-0.5 ${
+                              isOverdue
+                                ? 'text-red-600'
+                                : isToday
+                                  ? 'text-[#3182F6]'
+                                  : 'text-[#8B95A1]'
+                            }`}
+                          >
+                            {isOverdue ? '⚠ 지남: ' : isToday ? '📅 오늘: ' : ''}
+                            {task.due_date}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="text-gray-300 hover:text-red-500 transition-colors p-1 opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           <div
             className={`bg-white rounded-[24px] p-6 shadow-sm border ${
               isDeadlinePassed

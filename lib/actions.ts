@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import type { DealStage, UserStatus } from './types';
+import type { DealStage, UserStatus, ActivityType } from './types';
 
 async function requireAuth() {
   const supabase = await createClient();
@@ -70,12 +70,18 @@ export async function updateDealDetail(
     competitor?: string;
     manager_comment?: string;
     stage?: DealStage;
+    deal_value?: number;
+    phone?: string;
+    next_contact_date?: string | null;
+    notes?: string;
+    referrer?: string;
   }
 ) {
   const { supabase } = await requireAuth();
   const { error } = await supabase.from('deals').update(patch).eq('id', dealId);
   if (error) return { error: error.message };
   revalidatePath('/pipeline');
+  revalidatePath('/dashboard');
   return { success: true };
 }
 
@@ -84,6 +90,124 @@ export async function deleteDeal(dealId: string) {
   const { error } = await supabase.from('deals').delete().eq('id', dealId);
   if (error) return { error: error.message };
   revalidatePath('/pipeline');
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+// -------------------- Activities --------------------
+export async function addActivity(
+  dealId: string,
+  activityType: ActivityType,
+  content: string
+) {
+  const { supabase, user } = await requireAuth();
+  const trimmed = content.trim();
+  if (!trimmed) return { error: '내용을 입력해주세요' };
+  const { error } = await supabase.from('deal_activities').insert({
+    deal_id: dealId,
+    author_id: user.id,
+    activity_type: activityType,
+    content: trimmed,
+  });
+  if (error) return { error: error.message };
+  revalidatePath('/pipeline');
+  return { success: true };
+}
+
+export async function deleteActivity(activityId: string) {
+  const { supabase } = await requireAuth();
+  const { error } = await supabase.from('deal_activities').delete().eq('id', activityId);
+  if (error) return { error: error.message };
+  revalidatePath('/pipeline');
+  return { success: true };
+}
+
+// -------------------- Tasks --------------------
+export async function createTask(
+  title: string,
+  dueDate?: string | null,
+  dealId?: string | null
+) {
+  const { supabase, user } = await requireAuth();
+  const trimmed = title.trim();
+  if (!trimmed) return { error: '내용을 입력해주세요' };
+  const { error } = await supabase.from('tasks').insert({
+    user_id: user.id,
+    title: trimmed,
+    due_date: dueDate || null,
+    deal_id: dealId || null,
+  });
+  if (error) return { error: error.message };
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+export async function toggleTask(taskId: string, done: boolean) {
+  const { supabase } = await requireAuth();
+  const { error } = await supabase.from('tasks').update({ done }).eq('id', taskId);
+  if (error) return { error: error.message };
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+export async function deleteTask(taskId: string) {
+  const { supabase } = await requireAuth();
+  const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+  if (error) return { error: error.message };
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+// -------------------- Member invite/delete (Manager) --------------------
+export async function inviteMember(payload: {
+  email: string;
+  name: string;
+  target_sales?: number;
+  conversion_rate?: number;
+  lead_time?: number;
+}) {
+  const { supabase, user } = await requireActiveManager();
+  const email = payload.email.trim().toLowerCase();
+  const name = payload.name.trim();
+  if (!email || !name) return { error: '이메일/이름을 모두 입력해주세요' };
+
+  // 이미 가입된 사용자인지 확인
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id, status')
+    .ilike('email', email)
+    .maybeSingle();
+
+  if (existingProfile) {
+    return {
+      error:
+        existingProfile.status === 'INACTIVE'
+          ? '이미 등록된 사용자입니다. 권한 복구 버튼을 사용하세요'
+          : '이미 가입된 사용자입니다',
+    };
+  }
+
+  const { error } = await supabase.from('member_invitations').upsert({
+    email,
+    name,
+    invited_by: user.id,
+    target_sales: payload.target_sales ?? 10000000,
+    conversion_rate: payload.conversion_rate ?? 10,
+    lead_time: payload.lead_time ?? 7,
+  });
+  if (error) return { error: error.message };
+  revalidatePath('/manager');
+  return { success: true };
+}
+
+export async function cancelInvitation(email: string) {
+  const { supabase } = await requireActiveManager();
+  const { error } = await supabase
+    .from('member_invitations')
+    .delete()
+    .eq('email', email.toLowerCase());
+  if (error) return { error: error.message };
+  revalidatePath('/manager');
   return { success: true };
 }
 

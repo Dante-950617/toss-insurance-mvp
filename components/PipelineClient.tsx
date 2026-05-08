@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, type FormEvent } from 'react';
+import { useState, useTransition, useMemo, type FormEvent } from 'react';
 import {
   Plus,
   X,
@@ -13,16 +13,32 @@ import {
   CreditCard,
   Save,
   Users,
+  Search,
+  Trash2,
+  Phone,
+  CalendarClock,
+  StickyNote,
+  UserPlus,
+  Clock,
+  History,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
   createDeal,
   updateDealStage,
   updateDealDetail,
+  deleteDeal,
+  addActivity,
 } from '@/lib/actions';
 import { formatCurrency, getDwellDays } from '@/lib/utils';
-import { STAGES } from '@/lib/types';
-import type { Profile, Deal, DealStage } from '@/lib/types';
+import { STAGES, ACTIVITY_LABELS } from '@/lib/types';
+import type {
+  Profile,
+  Deal,
+  DealStage,
+  DealActivity,
+  ActivityType,
+} from '@/lib/types';
 
 const FAILURE_REASONS = [
   '보험료 부담',
@@ -36,28 +52,57 @@ export default function PipelineClient({
   currentUser,
   members,
   initialDeals,
+  initialActivities,
 }: {
   currentUser: Profile;
   members: Profile[];
   initialDeals: Deal[];
+  initialActivities: DealActivity[];
 }) {
   const { showToast } = useToast();
   const [, startTransition] = useTransition();
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
+  const [activities, setActivities] = useState<DealActivity[]>(initialActivities);
 
   const isManager = currentUser.role === 'MANAGER';
 
+  const repMembers = useMemo(
+    () => members.filter((m) => m.role === 'REP' || m.id === currentUser.id),
+    [members, currentUser.id]
+  );
+
   const [activeMemberId, setActiveMemberId] = useState<string>(
-    isManager ? members[0]?.id ?? currentUser.id : currentUser.id
+    isManager ? repMembers[0]?.id ?? currentUser.id : currentUser.id
   );
   const [newCustomer, setNewCustomer] = useState('');
+  const [search, setSearch] = useState('');
+  const [stageFilter, setStageFilter] = useState<DealStage | 'ALL'>('ALL');
 
   const [reasonModalDeal, setReasonModalDeal] = useState<Deal | null>(null);
   const [failureReason, setFailureReason] = useState('');
   const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
+  const [confirmDeleteDealId, setConfirmDeleteDealId] = useState<string | null>(null);
+  const [newActivity, setNewActivity] = useState({
+    type: 'call' as ActivityType,
+    content: '',
+  });
 
   const pipelineMember = members.find((m) => m.id === activeMemberId);
-  const memberDeals = deals.filter((m) => m.member_id === activeMemberId);
+
+  const filteredDeals = useMemo(() => {
+    const memberFiltered = deals.filter((d) => d.member_id === activeMemberId);
+    const searchLower = search.trim().toLowerCase();
+    return memberFiltered.filter((d) => {
+      if (stageFilter !== 'ALL' && d.stage !== stageFilter) return false;
+      if (!searchLower) return true;
+      return (
+        d.customer_name.toLowerCase().includes(searchLower) ||
+        d.product_type.toLowerCase().includes(searchLower) ||
+        d.phone.toLowerCase().includes(searchLower) ||
+        d.notes.toLowerCase().includes(searchLower)
+      );
+    });
+  }, [deals, activeMemberId, search, stageFilter]);
 
   const optimisticPatch = (id: string, patch: Partial<Deal>) => {
     setDeals((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -91,6 +136,11 @@ export default function PipelineClient({
       date: today,
       last_updated: today,
       created_at: new Date().toISOString(),
+      deal_value: 0,
+      phone: '',
+      next_contact_date: null,
+      notes: '',
+      referrer: '',
     };
     setDeals((prev) => [optimisticDeal, ...prev]);
     setNewCustomer('');
@@ -112,7 +162,7 @@ export default function PipelineClient({
   const handleStageSelect = (deal: Deal, raw: string) => {
     let newStage = raw as DealStage;
 
-    if (!isManager && (newStage === '계약완료')) {
+    if (!isManager && newStage === '계약완료') {
       showToast("클로징 처리는 관리자의 승인이 필요합니다. '승인요청' 상태로 변경합니다.");
       newStage = '클로징(승인대기)';
     }
@@ -163,13 +213,18 @@ export default function PipelineClient({
     e.preventDefault();
     if (!detailDeal) return;
     const id = detailDeal.id;
-    const original = initialDeals.find((d) => d.id === id) ?? detailDeal;
+    const original = deals.find((d) => d.id === id) ?? detailDeal;
     const patch = {
       product_type: detailDeal.product_type,
       monthly_premium: detailDeal.monthly_premium,
       competitor: detailDeal.competitor,
       manager_comment: detailDeal.manager_comment,
       stage: detailDeal.stage,
+      deal_value: detailDeal.deal_value,
+      phone: detailDeal.phone,
+      next_contact_date: detailDeal.next_contact_date,
+      notes: detailDeal.notes,
+      referrer: detailDeal.referrer,
     };
 
     const today = new Date().toISOString().slice(0, 10);
@@ -187,18 +242,74 @@ export default function PipelineClient({
     });
   };
 
+  const handleDeleteDeal = (dealId: string) => {
+    const original = deals.find((d) => d.id === dealId);
+    if (!original) return;
+    setDeals((prev) => prev.filter((d) => d.id !== dealId));
+    setConfirmDeleteDealId(null);
+    setDetailDeal(null);
+    startTransition(async () => {
+      const res = await deleteDeal(dealId);
+      if (res.error) {
+        setDeals((prev) => [original, ...prev]);
+        showToast(`삭제 실패: ${res.error}`);
+      } else {
+        showToast('딜이 삭제되었습니다.');
+      }
+    });
+  };
+
+  const handleAddActivity = (e: FormEvent) => {
+    e.preventDefault();
+    if (!detailDeal) return;
+    const trimmed = newActivity.content.trim();
+    if (!trimmed) return;
+    const tempId = `temp-act-${Date.now()}`;
+    const optimisticAct: DealActivity = {
+      id: tempId,
+      deal_id: detailDeal.id,
+      author_id: currentUser.id,
+      activity_type: newActivity.type,
+      content: trimmed,
+      created_at: new Date().toISOString(),
+    };
+    setActivities((prev) => [optimisticAct, ...prev]);
+    setNewActivity({ type: newActivity.type, content: '' });
+
+    startTransition(async () => {
+      const res = await addActivity(detailDeal.id, newActivity.type, trimmed);
+      if (res.error) {
+        setActivities((prev) => prev.filter((a) => a.id !== tempId));
+        showToast(`기록 실패: ${res.error}`);
+      } else {
+        showToast('활동 기록이 저장되었습니다.');
+      }
+    });
+  };
+
+  const dealActivities = detailDeal
+    ? activities
+        .filter((a) => a.deal_id === detailDeal.id)
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+    : [];
+
+  const canManageDeal = (d: Deal) => isManager || d.member_id === currentUser.id;
+
   return (
-    <div className="space-y-6 flex flex-col h-[calc(100vh-140px)]">
+    <div className="space-y-4 flex flex-col h-[calc(100vh-140px)]">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-[#191F28] tracking-tight flex items-center">
-            {isManager && members.length > 0 ? (
+            {isManager && repMembers.length > 0 ? (
               <select
                 className="bg-transparent border-none text-2xl font-bold text-[#3182F6] cursor-pointer outline-none mr-2 p-0"
                 value={activeMemberId}
                 onChange={(e) => setActiveMemberId(e.target.value)}
               >
-                {members.map((m) => (
+                {repMembers.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
@@ -217,22 +328,44 @@ export default function PipelineClient({
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-2 shrink-0">
-        <form onSubmit={handleAddDeal} className="w-full flex gap-2">
+      <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 shrink-0">
+        <form onSubmit={handleAddDeal} className="flex gap-2">
           <input
             type="text"
-            placeholder="신규 고객명 (예: 김토스 고객님) 입력 후 엔터"
+            placeholder="신규 고객명 입력 후 엔터"
             value={newCustomer}
             onChange={(e) => setNewCustomer(e.target.value)}
             className="flex-1 border-none bg-[#F2F4F6] rounded-xl p-3 px-4 focus:ring-2 focus:ring-[#3182F6] outline-none text-sm font-medium"
           />
           <button
             type="submit"
-            className="bg-[#191F28] hover:bg-black text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center transition-colors whitespace-nowrap shadow-sm"
+            className="bg-[#191F28] hover:bg-black text-white px-4 py-3 rounded-xl text-sm font-bold flex items-center transition-colors whitespace-nowrap shadow-sm"
           >
-            <Plus className="w-4 h-4 mr-1.5" /> 신규 딜 등록
+            <Plus className="w-4 h-4 mr-1" /> 신규 딜
           </button>
         </form>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="검색 (고객명/전화/상품/메모)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border-none bg-[#F2F4F6] rounded-xl py-3 pl-10 pr-4 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none w-full md:w-72"
+          />
+        </div>
+        <select
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value as DealStage | 'ALL')}
+          className="bg-[#F2F4F6] border-none rounded-xl px-4 py-3 text-sm font-bold cursor-pointer focus:ring-2 focus:ring-[#3182F6] outline-none"
+        >
+          <option value="ALL">전체 단계</option>
+          {STAGES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 pb-4 flex-1 min-h-0">
@@ -243,7 +376,9 @@ export default function PipelineClient({
           >
             <div className="flex justify-between items-center mb-4 px-1 shrink-0">
               <h3 className="font-bold text-[#191F28] text-sm flex items-center">
-                {stage === '계약완료' && <CheckCircle className="w-4 h-4 mr-1.5 text-green-500" />}
+                {stage === '계약완료' && (
+                  <CheckCircle className="w-4 h-4 mr-1.5 text-green-500" />
+                )}
                 {stage === '클로징(승인대기)' && (
                   <ShieldCheck className="w-4 h-4 mr-1.5 text-[#3182F6]" />
                 )}
@@ -251,18 +386,21 @@ export default function PipelineClient({
                 {stage}
               </h3>
               <span className="bg-white text-[#4E5968] text-xs font-bold px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
-                {memberDeals.filter((m) => m.stage === stage).length}
+                {filteredDeals.filter((m) => m.stage === stage).length}
               </span>
             </div>
 
             <div className="space-y-3 flex-1 overflow-y-auto pb-2 pr-1 no-scrollbar">
-              {memberDeals
+              {filteredDeals
                 .filter((m) => m.stage === stage)
                 .map((deal) => {
                   const dwellDays = getDwellDays(deal.last_updated);
                   const isStale =
                     dwellDays >= 5 &&
                     ['진행대기', '상담중', '클로징(승인대기)'].includes(stage);
+                  const upcomingContact =
+                    deal.next_contact_date &&
+                    new Date(deal.next_contact_date) >= new Date(Date.now() - 86400000);
 
                   return (
                     <div
@@ -273,13 +411,24 @@ export default function PipelineClient({
                       } hover:border-[#3182F6] hover:shadow-md transition-all group cursor-pointer`}
                     >
                       <div className="flex flex-col mb-3 space-y-2">
-                        <span className="font-bold text-sm text-[#191F28] truncate w-full">
-                          {deal.customer_name}
-                        </span>
-                        <div
-                          className="relative w-full"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-bold text-sm text-[#191F28] truncate">
+                            {deal.customer_name}
+                          </span>
+                          {canManageDeal(deal) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDeleteDealId(deal.id);
+                              }}
+                              className="text-gray-300 hover:text-red-500 transition-colors p-1 -m-1 shrink-0"
+                              aria-label="딜 삭제"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="relative w-full" onClick={(e) => e.stopPropagation()}>
                           {!isManager &&
                           (stage === '클로징(승인대기)' || stage === '계약완료') ? (
                             <span className="text-[10px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold block w-fit">
@@ -301,20 +450,37 @@ export default function PipelineClient({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-1.5 mb-3">
+                      <div className="flex flex-wrap gap-1.5 mb-2">
                         {deal.product_type && (
                           <span className="inline-flex items-center text-[11px] bg-[#F2F4F6] text-[#4E5968] px-2 py-1 rounded-md font-medium">
                             <FileText className="w-3 h-3 mr-1 text-gray-400" />{' '}
                             {deal.product_type}
                           </span>
                         )}
+                        {deal.deal_value > 0 && (
+                          <span className="inline-flex items-center text-[11px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold">
+                            계약 {formatCurrency(deal.deal_value)}원
+                          </span>
+                        )}
                         {deal.monthly_premium > 0 && (
                           <span className="inline-flex items-center text-[11px] bg-green-50 text-green-700 px-2 py-1 rounded-md font-medium">
-                            <CreditCard className="w-3 h-3 mr-1" />{' '}
+                            <CreditCard className="w-3 h-3 mr-1" /> 월{' '}
                             {formatCurrency(deal.monthly_premium)}
                           </span>
                         )}
+                        {deal.phone && (
+                          <span className="inline-flex items-center text-[11px] bg-purple-50 text-purple-700 px-2 py-1 rounded-md font-medium">
+                            <Phone className="w-3 h-3 mr-1" /> {deal.phone}
+                          </span>
+                        )}
                       </div>
+
+                      {upcomingContact && (
+                        <div className="text-[11px] font-bold bg-orange-50 text-orange-600 px-2 py-1 rounded-md flex items-center w-fit mb-2">
+                          <CalendarClock className="w-3 h-3 mr-1" /> 다음 연락:{' '}
+                          {deal.next_contact_date}
+                        </div>
+                      )}
 
                       <div className="flex flex-col mt-2 border-t border-gray-50 pt-2 space-y-1.5">
                         <div className="text-[10px] text-gray-400 font-medium">
@@ -360,7 +526,7 @@ export default function PipelineClient({
                   );
                 })}
 
-              {memberDeals.filter((m) => m.stage === stage).length === 0 && (
+              {filteredDeals.filter((m) => m.stage === stage).length === 0 && (
                 <div className="text-center text-[#8B95A1] text-xs py-10 border-2 border-dashed border-gray-200 rounded-[16px] font-medium mt-2">
                   해당되는 딜이 없습니다
                 </div>
@@ -372,15 +538,15 @@ export default function PipelineClient({
 
       {detailDeal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[24px] p-8 w-full max-w-lg shadow-xl relative">
+          <div className="bg-white rounded-[24px] p-8 w-full max-w-2xl shadow-xl relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setDetailDeal(null)}
-              className="absolute top-6 right-6 text-gray-400 hover:text-gray-700"
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-700 z-10"
             >
               <X className="w-6 h-6" />
             </button>
 
-            <div className="flex items-center mb-8 pb-6 border-b border-gray-100">
+            <div className="flex items-center mb-6 pb-6 border-b border-gray-100">
               <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mr-4 text-[#3182F6]">
                 <Users className="w-6 h-6" />
               </div>
@@ -397,64 +563,145 @@ export default function PipelineClient({
               </div>
             </div>
 
-            <form onSubmit={handleSaveDetail} className="space-y-6">
-              <div className="space-y-4">
-                <h4 className="text-base font-bold text-[#191F28]">딜(Deal) 상세 정보</h4>
+            <form onSubmit={handleSaveDetail} className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                  연락처 (전화번호)
+                </label>
+                <input
+                  type="text"
+                  placeholder="010-1234-5678"
+                  value={detailDeal.phone}
+                  onChange={(e) =>
+                    setDetailDeal({ ...detailDeal, phone: e.target.value })
+                  }
+                  className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                  readOnly={!canManageDeal(detailDeal)}
+                />
+              </div>
 
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                    제안 상품 유형
+                    다음 컨택 예정일
+                  </label>
+                  <input
+                    type="date"
+                    value={detailDeal.next_contact_date ?? ''}
+                    onChange={(e) =>
+                      setDetailDeal({
+                        ...detailDeal,
+                        next_contact_date: e.target.value || null,
+                      })
+                    }
+                    className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                    readOnly={!canManageDeal(detailDeal)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    추천인
                   </label>
                   <input
                     type="text"
-                    placeholder="예: 종합건강보험, 종신보험 등"
-                    value={detailDeal.product_type}
+                    placeholder="예: 김토스 고객님 소개"
+                    value={detailDeal.referrer}
                     onChange={(e) =>
-                      setDetailDeal({ ...detailDeal, product_type: e.target.value })
+                      setDetailDeal({ ...detailDeal, referrer: e.target.value })
                     }
                     className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                    readOnly={isManager}
+                    readOnly={!canManageDeal(detailDeal)}
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                      예상 월 납입액 (원)
-                    </label>
-                    <input
-                      type="number"
-                      value={detailDeal.monthly_premium || ''}
-                      onChange={(e) =>
-                        setDetailDeal({
-                          ...detailDeal,
-                          monthly_premium: Number(e.target.value),
-                        })
-                      }
-                      className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                      readOnly={isManager}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                      경쟁사 / 비교 업체
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="예: A생명, B손보"
-                      value={detailDeal.competitor}
-                      onChange={(e) =>
-                        setDetailDeal({ ...detailDeal, competitor: e.target.value })
-                      }
-                      className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                      readOnly={isManager}
-                    />
-                  </div>
                 </div>
               </div>
 
+              <div>
+                <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                  제안 상품 유형
+                </label>
+                <input
+                  type="text"
+                  placeholder="예: 종합건강보험, 종신보험 등"
+                  value={detailDeal.product_type}
+                  onChange={(e) =>
+                    setDetailDeal({ ...detailDeal, product_type: e.target.value })
+                  }
+                  className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                  readOnly={!canManageDeal(detailDeal)}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    예상 월 납입액
+                  </label>
+                  <input
+                    type="number"
+                    value={detailDeal.monthly_premium || ''}
+                    onChange={(e) =>
+                      setDetailDeal({
+                        ...detailDeal,
+                        monthly_premium: Number(e.target.value),
+                      })
+                    }
+                    className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                    readOnly={!canManageDeal(detailDeal)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    계약 매출액 (원) <span className="text-[#3182F6]">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="계약완료 시 자동 합산"
+                    value={detailDeal.deal_value || ''}
+                    onChange={(e) =>
+                      setDetailDeal({
+                        ...detailDeal,
+                        deal_value: Number(e.target.value),
+                      })
+                    }
+                    className="w-full border border-blue-200 bg-blue-50/30 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                    readOnly={!canManageDeal(detailDeal)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
+                    경쟁사
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="A생명"
+                    value={detailDeal.competitor}
+                    onChange={(e) =>
+                      setDetailDeal({ ...detailDeal, competitor: e.target.value })
+                    }
+                    className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                    readOnly={!canManageDeal(detailDeal)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-[#4E5968] mb-2 flex items-center">
+                  <StickyNote className="w-3.5 h-3.5 mr-1" /> 자유 메모
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="고객 특이사항, 가입 의향, 관심 상품 등"
+                  value={detailDeal.notes}
+                  onChange={(e) =>
+                    setDetailDeal({ ...detailDeal, notes: e.target.value })
+                  }
+                  className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 text-sm focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none resize-none font-medium"
+                  readOnly={!canManageDeal(detailDeal)}
+                />
+              </div>
+
               {isManager ? (
-                <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 mt-6">
+                <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
                   <label className="block text-sm font-bold text-[#3182F6] mb-3 flex items-center">
                     <ShieldCheck className="w-4 h-4 mr-1.5" /> 내부 컨펌 및 지점장 코멘트
                   </label>
@@ -471,7 +718,9 @@ export default function PipelineClient({
                     <div className="mt-4 flex gap-3">
                       <button
                         type="button"
-                        onClick={() => setDetailDeal({ ...detailDeal, stage: '계약완료' })}
+                        onClick={() =>
+                          setDetailDeal({ ...detailDeal, stage: '계약완료' })
+                        }
                         className="flex-1 bg-[#3182F6] text-white py-3 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
                       >
                         계약 승인 완료
@@ -488,7 +737,7 @@ export default function PipelineClient({
                 </div>
               ) : (
                 detailDeal.manager_comment && (
-                  <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 mt-6">
+                  <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
                     <h4 className="text-sm font-bold text-[#3182F6] mb-2 flex items-center">
                       <ShieldCheck className="w-4 h-4 mr-1" /> 지점장 피드백
                     </h4>
@@ -499,22 +748,141 @@ export default function PipelineClient({
                 )
               )}
 
-              <div className="pt-6 mt-2 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDetailDeal(null)}
-                  className="px-5 py-3 text-sm font-bold text-[#4E5968] bg-[#F2F4F6] rounded-xl hover:bg-gray-200 transition-colors"
-                >
-                  닫기
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-3 text-sm font-bold text-white bg-[#191F28] rounded-xl hover:bg-black transition-colors flex items-center"
-                >
-                  <Save className="w-4 h-4 mr-1.5" /> 변경사항 저장
-                </button>
+              <div className="pt-4 flex justify-between items-center gap-3">
+                {canManageDeal(detailDeal) && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteDealId(detailDeal.id)}
+                    className="px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl flex items-center"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1.5" /> 딜 삭제
+                  </button>
+                )}
+                <div className="flex gap-3 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setDetailDeal(null)}
+                    className="px-5 py-3 text-sm font-bold text-[#4E5968] bg-[#F2F4F6] rounded-xl hover:bg-gray-200 transition-colors"
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-3 text-sm font-bold text-white bg-[#191F28] rounded-xl hover:bg-black transition-colors flex items-center"
+                  >
+                    <Save className="w-4 h-4 mr-1.5" /> 변경사항 저장
+                  </button>
+                </div>
               </div>
             </form>
+
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <h4 className="text-base font-bold text-[#191F28] mb-4 flex items-center">
+                <History className="w-5 h-5 mr-2 text-[#3182F6]" /> 활동 타임라인
+              </h4>
+
+              <form
+                onSubmit={handleAddActivity}
+                className="bg-[#F9FAFB] rounded-xl p-3 mb-4 flex gap-2 items-stretch border border-gray-100"
+              >
+                <select
+                  value={newActivity.type}
+                  onChange={(e) =>
+                    setNewActivity({
+                      ...newActivity,
+                      type: e.target.value as ActivityType,
+                    })
+                  }
+                  className="bg-white border border-gray-200 rounded-lg px-3 text-xs font-bold cursor-pointer"
+                >
+                  {(Object.keys(ACTIVITY_LABELS) as ActivityType[]).map((t) => (
+                    <option key={t} value={t}>
+                      {ACTIVITY_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="활동 내용 (예: 첫 통화. 자녀 보험 관심 있음)"
+                  value={newActivity.content}
+                  onChange={(e) =>
+                    setNewActivity({ ...newActivity, content: e.target.value })
+                  }
+                  className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                />
+                <button
+                  type="submit"
+                  className="bg-[#3182F6] text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-600 flex items-center"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </form>
+
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-1 no-scrollbar">
+                {dealActivities.length === 0 ? (
+                  <p className="text-xs text-[#8B95A1] text-center py-6 bg-gray-50 rounded-xl border border-gray-100">
+                    아직 기록된 활동이 없습니다
+                  </p>
+                ) : (
+                  dealActivities.map((act) => {
+                    const author = members.find((m) => m.id === act.author_id);
+                    return (
+                      <div
+                        key={act.id}
+                        className="bg-white border border-gray-100 rounded-xl p-3 flex gap-3 items-start"
+                      >
+                        <div className="bg-blue-50 text-[#3182F6] text-[10px] font-bold px-2 py-1 rounded-md whitespace-nowrap shrink-0">
+                          {ACTIVITY_LABELS[act.activity_type]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-[#191F28] font-medium leading-relaxed break-words">
+                            {act.content}
+                          </p>
+                          <p className="text-[10px] text-[#8B95A1] mt-1 font-medium">
+                            {author?.name ?? '알 수 없음'} ·{' '}
+                            {new Date(act.created_at).toLocaleString('ko-KR', {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteDealId && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-[24px] p-8 w-full max-w-sm shadow-xl">
+            <h3 className="text-xl font-bold text-[#191F28] mb-2 flex items-center">
+              <Trash2 className="w-6 h-6 mr-2 text-red-500" /> 딜 삭제
+            </h3>
+            <p className="text-sm text-[#4E5968] mb-6 font-medium">
+              이 딜과 관련된 활동 기록도 함께 삭제됩니다. 되돌릴 수 없습니다.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmDeleteDealId(null)}
+                className="px-5 py-3 text-sm font-bold text-[#4E5968] bg-[#F2F4F6] rounded-xl hover:bg-gray-200"
+              >
+                취소
+              </button>
+              <button
+                onClick={() =>
+                  confirmDeleteDealId && handleDeleteDeal(confirmDeleteDealId)
+                }
+                className="px-5 py-3 text-sm font-bold text-white bg-red-500 rounded-xl hover:bg-red-600"
+              >
+                삭제
+              </button>
+            </div>
           </div>
         </div>
       )}

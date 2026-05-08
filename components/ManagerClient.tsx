@@ -8,6 +8,10 @@ import {
   X,
   ArrowUpRight,
   ArrowDownRight,
+  UserPlus,
+  Mail,
+  Clock,
+  Trash2,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
@@ -15,17 +19,26 @@ import {
   updateTeamSettings,
   setUserStatus,
   setUserRole,
+  inviteMember,
+  cancelInvitation,
 } from '@/lib/actions';
 import { formatCurrency } from '@/lib/utils';
-import type { Profile, CalculatedMember, TeamSettings } from '@/lib/types';
+import type {
+  Profile,
+  CalculatedMember,
+  TeamSettings,
+  MemberInvitation,
+} from '@/lib/types';
 
 export default function ManagerClient({
   currentUser,
   members,
+  invitations,
   teamSettings,
 }: {
   currentUser: Profile;
   members: CalculatedMember[];
+  invitations: MemberInvitation[];
   teamSettings: TeamSettings;
 }) {
   const { showToast } = useToast();
@@ -33,6 +46,18 @@ export default function ManagerClient({
 
   const [editTeam, setEditTeam] = useState<TeamSettings | null>(null);
   const [editMember, setEditMember] = useState<CalculatedMember | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({
+    email: '',
+    name: '',
+    target_sales: 10000000,
+    conversion_rate: 10,
+    lead_time: 7,
+  });
+
+  const activeManagerCount = members.filter(
+    (m) => m.role === 'MANAGER' && m.status === 'ACTIVE'
+  ).length;
 
   const handleSaveTeam = (e: FormEvent) => {
     e.preventDefault();
@@ -72,23 +97,80 @@ export default function ManagerClient({
 
   const handleStatusChange = (
     userId: string,
-    status: 'ACTIVE' | 'INACTIVE'
+    status: 'ACTIVE' | 'INACTIVE',
+    member: CalculatedMember
   ) => {
+    if (
+      status === 'INACTIVE' &&
+      member.role === 'MANAGER' &&
+      activeManagerCount <= 1
+    ) {
+      showToast('마지막 관리자입니다. 다른 관리자를 먼저 지정하세요.');
+      return;
+    }
     startTransition(async () => {
       const res = await setUserStatus(userId, status);
       if (res.error) showToast(`변경 실패: ${res.error}`);
       else
         showToast(
-          status === 'ACTIVE' ? '계정이 정상 활성화되었습니다.' : '접속 권한이 회수되었습니다.'
+          status === 'ACTIVE'
+            ? '계정이 정상 활성화되었습니다.'
+            : '팀원이 비활성화(삭제 처리) 되었습니다.'
         );
     });
   };
 
-  const handleRoleChange = (userId: string, role: 'MANAGER' | 'REP') => {
+  const handleRoleChange = (
+    userId: string,
+    role: 'MANAGER' | 'REP',
+    member: CalculatedMember
+  ) => {
+    if (
+      role === 'REP' &&
+      member.role === 'MANAGER' &&
+      member.status === 'ACTIVE' &&
+      activeManagerCount <= 1
+    ) {
+      showToast('마지막 관리자의 권한은 변경할 수 없습니다.');
+      return;
+    }
     startTransition(async () => {
       const res = await setUserRole(userId, role);
       if (res.error) showToast(`변경 실패: ${res.error}`);
       else showToast(`권한이 ${role}로 변경되었습니다.`);
+    });
+  };
+
+  const handleInvite = (e: FormEvent) => {
+    e.preventDefault();
+    const f = inviteForm;
+    if (!f.email.trim() || !f.name.trim()) {
+      showToast('이메일과 이름은 필수입니다.');
+      return;
+    }
+    startTransition(async () => {
+      const res = await inviteMember(f);
+      if (res.error) {
+        showToast(`초대 실패: ${res.error}`);
+        return;
+      }
+      setInviteOpen(false);
+      setInviteForm({
+        email: '',
+        name: '',
+        target_sales: 10000000,
+        conversion_rate: 10,
+        lead_time: 7,
+      });
+      showToast(`${f.email} 초대 등록 완료. 본인이 같은 이메일로 가입하면 자동 활성화됩니다.`);
+    });
+  };
+
+  const handleCancelInvitation = (email: string) => {
+    startTransition(async () => {
+      const res = await cancelInvitation(email);
+      if (res.error) showToast(`취소 실패: ${res.error}`);
+      else showToast('초대가 취소되었습니다.');
     });
   };
 
@@ -136,10 +218,60 @@ export default function ManagerClient({
       </div>
 
       <div>
-        <h2 className="text-lg font-bold text-[#191F28] flex items-center mb-4">
-          <Users className="w-5 h-5 mr-2 text-gray-700" />
-          담당자별 목표 및 권한 관리
-        </h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-[#191F28] flex items-center">
+            <Users className="w-5 h-5 mr-2 text-gray-700" />
+            담당자별 목표 및 권한 관리
+          </h2>
+          <button
+            onClick={() => setInviteOpen(true)}
+            className="bg-[#191F28] hover:bg-black text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center transition-colors shadow-sm"
+          >
+            <UserPlus className="w-4 h-4 mr-1.5" /> 팀원 초대 추가
+          </button>
+        </div>
+
+        {invitations.length > 0 && (
+          <div className="bg-orange-50/40 border border-orange-100 rounded-[20px] p-5 mb-4">
+            <h3 className="text-sm font-bold text-orange-700 flex items-center mb-3">
+              <Clock className="w-4 h-4 mr-1.5" /> 가입 대기 중인 초대 ({invitations.length})
+            </h3>
+            <div className="space-y-2">
+              {invitations.map((inv) => (
+                <div
+                  key={inv.email}
+                  className="bg-white rounded-xl p-3 flex items-center justify-between border border-orange-100"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Mail className="w-4 h-4 text-orange-500 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-[#191F28] truncate">
+                        {inv.name}{' '}
+                        <span className="text-xs font-normal text-[#8B95A1]">
+                          ({inv.email})
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[#8B95A1] font-medium">
+                        목표 {formatCurrency(inv.target_sales)}원 · 전환율{' '}
+                        {inv.conversion_rate}% · 리드타임 {inv.lead_time}일
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleCancelInvitation(inv.email)}
+                    className="text-xs font-bold text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg flex items-center transition-colors shrink-0 ml-2"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" /> 취소
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-orange-700/70 font-medium mt-3 leading-relaxed">
+              ※ 초대받은 분이 같은 이메일로 회원가입하면 자동으로 ACTIVE + REP 권한이 부여됩니다.
+              가입 사이트 주소를 따로 알려주세요.
+            </p>
+          </div>
+        )}
 
         <div className="bg-white border border-gray-100 rounded-[24px] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
@@ -175,7 +307,11 @@ export default function ManagerClient({
                           <select
                             value={member.role}
                             onChange={(e) =>
-                              handleRoleChange(member.id, e.target.value as 'MANAGER' | 'REP')
+                              handleRoleChange(
+                                member.id,
+                                e.target.value as 'MANAGER' | 'REP',
+                                member
+                              )
                             }
                             className="text-xs bg-white border border-gray-200 rounded-md px-2 py-1 font-bold cursor-pointer hover:bg-gray-50"
                           >
@@ -192,7 +328,7 @@ export default function ManagerClient({
                         )}
                         {member.status === 'INACTIVE' && (
                           <span className="bg-red-50 text-red-600 px-2.5 py-1 rounded-md text-xs font-bold border border-red-100">
-                            접근 차단
+                            삭제됨(데이터 보존)
                           </span>
                         )}
                         {member.status === 'PENDING' && (
@@ -223,7 +359,9 @@ export default function ManagerClient({
                         <div className="flex items-center justify-end gap-2">
                           {member.status === 'PENDING' && (
                             <button
-                              onClick={() => handleStatusChange(member.id, 'ACTIVE')}
+                              onClick={() =>
+                                handleStatusChange(member.id, 'ACTIVE', member)
+                              }
                               className="text-xs font-bold bg-[#191F28] text-white px-3 py-1.5 rounded-lg hover:bg-black transition-colors"
                             >
                               가입 승인
@@ -231,18 +369,22 @@ export default function ManagerClient({
                           )}
                           {member.status === 'ACTIVE' && !isSelf && (
                             <button
-                              onClick={() => handleStatusChange(member.id, 'INACTIVE')}
-                              className="text-xs font-bold bg-red-50 text-red-600 border border-red-100 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
+                              onClick={() =>
+                                handleStatusChange(member.id, 'INACTIVE', member)
+                              }
+                              className="text-xs font-bold bg-red-50 text-red-600 border border-red-100 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors flex items-center"
                             >
-                              권한 회수
+                              <Trash2 className="w-3 h-3 mr-1" /> 팀원 삭제
                             </button>
                           )}
                           {member.status === 'INACTIVE' && (
                             <button
-                              onClick={() => handleStatusChange(member.id, 'ACTIVE')}
+                              onClick={() =>
+                                handleStatusChange(member.id, 'ACTIVE', member)
+                              }
                               className="text-xs font-bold bg-gray-100 text-[#4E5968] border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors"
                             >
-                              권한 복구
+                              복구
                             </button>
                           )}
                           <button
@@ -268,6 +410,60 @@ export default function ManagerClient({
           </div>
         </div>
       </div>
+
+      {inviteOpen && (
+        <Modal title="팀원 초대" onClose={() => setInviteOpen(false)}>
+          <form onSubmit={handleInvite} className="space-y-5">
+            <Field
+              label="이름 (성함)"
+              type="text"
+              value={inviteForm.name}
+              onChange={(v) => setInviteForm({ ...inviteForm, name: String(v) })}
+            />
+            <Field
+              label="이메일 (가입 시 사용할 이메일)"
+              type="text"
+              value={inviteForm.email}
+              onChange={(v) => setInviteForm({ ...inviteForm, email: String(v) })}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Field
+                label="목표 실적 (원)"
+                type="number"
+                value={inviteForm.target_sales}
+                onChange={(v) =>
+                  setInviteForm({ ...inviteForm, target_sales: Number(v) })
+                }
+              />
+              <Field
+                label="전환율 (%)"
+                type="number"
+                value={inviteForm.conversion_rate}
+                onChange={(v) =>
+                  setInviteForm({ ...inviteForm, conversion_rate: Number(v) })
+                }
+              />
+              <div className="col-span-2">
+                <Field
+                  label="리드타임 (일)"
+                  type="number"
+                  value={inviteForm.lead_time}
+                  onChange={(v) =>
+                    setInviteForm({ ...inviteForm, lead_time: Number(v) })
+                  }
+                />
+              </div>
+            </div>
+            <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+              <p className="text-[11px] text-[#3182F6] font-medium leading-relaxed">
+                💡 초대 등록 후 본인이 같은 이메일로 회원가입하면 자동으로 ACTIVE + REP 권한이 부여됩니다.
+                가입 사이트 주소(이 사이트 URL)를 따로 알려주세요.
+              </p>
+            </div>
+            <ModalButtons label="초대하기" onCancel={() => setInviteOpen(false)} />
+          </form>
+        </Modal>
+      )}
 
       {editTeam && (
         <Modal title="팀 전체 KPI 목표 수정" onClose={() => setEditTeam(null)}>
@@ -296,7 +492,9 @@ export default function ManagerClient({
                   label="팀 건당 평균 객단가 (원)"
                   type="number"
                   value={editTeam.avg_deal_size}
-                  onChange={(v) => setEditTeam({ ...editTeam, avg_deal_size: Number(v) })}
+                  onChange={(v) =>
+                    setEditTeam({ ...editTeam, avg_deal_size: Number(v) })
+                  }
                 />
               </div>
             </div>
@@ -343,7 +541,9 @@ export default function ManagerClient({
                 label="리드타임 (일)"
                 type="number"
                 value={editMember.lead_time}
-                onChange={(v) => setEditMember({ ...editMember, lead_time: Number(v) })}
+                onChange={(v) =>
+                  setEditMember({ ...editMember, lead_time: Number(v) })
+                }
               />
             </div>
             <ModalButtons onCancel={() => setEditMember(null)} />
@@ -416,7 +616,13 @@ function Field({
   );
 }
 
-function ModalButtons({ onCancel }: { onCancel: () => void }) {
+function ModalButtons({
+  onCancel,
+  label = '저장하기',
+}: {
+  onCancel: () => void;
+  label?: string;
+}) {
   return (
     <div className="pt-4 mt-2 flex justify-end gap-2">
       <button
@@ -430,7 +636,7 @@ function ModalButtons({ onCancel }: { onCancel: () => void }) {
         type="submit"
         className="px-5 py-3 text-sm font-bold text-white bg-[#3182F6] rounded-xl hover:bg-blue-600 transition-colors"
       >
-        저장하기
+        {label}
       </button>
     </div>
   );

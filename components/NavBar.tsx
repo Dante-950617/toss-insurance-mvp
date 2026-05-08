@@ -8,20 +8,37 @@ import type { UserRole } from '@/lib/types';
 export default function NavBar({
   role,
   userName,
+  pendingApprovals = 0,
+  pendingUsers = 0,
 }: {
   role: UserRole;
   userName: string;
+  pendingApprovals?: number;
+  pendingUsers?: number;
 }) {
   const pathname = usePathname();
 
-  const tabs: { href: string; label: string; icon: typeof Target; managerOnly?: boolean }[] = [
+  const tabs: {
+    href: string;
+    label: string;
+    icon: typeof Target;
+    managerOnly?: boolean;
+    badge?: number;
+  }[] = [
     { href: '/dashboard', label: '대시보드', icon: Target },
     {
       href: '/pipeline',
       label: role === 'REP' ? '나의 파이프라인' : '팀원 파이프라인',
       icon: KanbanSquare,
+      badge: role === 'MANAGER' ? pendingApprovals : 0,
     },
-    { href: '/manager', label: '조직 관리', icon: Settings, managerOnly: true },
+    {
+      href: '/manager',
+      label: '조직 관리',
+      icon: Settings,
+      managerOnly: true,
+      badge: pendingUsers,
+    },
   ];
 
   return (
@@ -38,17 +55,23 @@ export default function NavBar({
               .map((t) => {
                 const active = pathname.startsWith(t.href);
                 const Icon = t.icon;
+                const showBadge = (t.badge ?? 0) > 0;
                 return (
                   <Link
                     key={t.href}
                     href={t.href}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center ${
+                    className={`relative px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center ${
                       active
                         ? 'bg-white text-[#191F28] shadow-sm'
                         : 'text-[#4E5968] hover:text-[#191F28]'
                     }`}
                   >
                     <Icon className="w-4 h-4 mr-1.5" /> {t.label}
+                    {showBadge && (
+                      <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[10px] font-extrabold text-white bg-red-500 rounded-full leading-none">
+                        {t.badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

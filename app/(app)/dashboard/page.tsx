@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import DashboardClient from '@/components/DashboardClient';
 import { calcMember } from '@/lib/utils';
-import type { Profile, TeamSettings, Deal } from '@/lib/types';
+import type { Profile, TeamSettings, Deal, Task } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +22,7 @@ export default async function DashboardPage() {
     .from('profiles')
     .select('*')
     .eq('role', 'REP')
+    .eq('status', 'ACTIVE')
     .order('name');
 
   const { data: teamSettings } = await supabase
@@ -33,6 +34,13 @@ export default async function DashboardPage() {
   const { data: deals } = await supabase.from('deals').select('*').order('last_updated', {
     ascending: false,
   });
+
+  const { data: tasks } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('done', { ascending: true })
+    .order('due_date', { ascending: true, nullsFirst: false });
 
   const members = ((membersRaw ?? []) as Profile[]).map(calcMember);
 
@@ -51,6 +59,7 @@ export default async function DashboardPage() {
         }
       }
       deals={(deals ?? []) as Deal[]}
+      initialTasks={(tasks ?? []) as Task[]}
     />
   );
 }
