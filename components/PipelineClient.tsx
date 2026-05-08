@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition, useMemo, type FormEvent } from 'react';
+import { useState, useTransition, useMemo, useEffect, type FormEvent } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Plus,
   X,
@@ -21,6 +22,8 @@ import {
   UserPlus,
   Clock,
   History,
+  Copy,
+  MessageCircle,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
@@ -63,8 +66,32 @@ export default function PipelineClient({
   const [, startTransition] = useTransition();
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
   const [activities, setActivities] = useState<DealActivity[]>(initialActivities);
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   const isManager = currentUser.role === 'MANAGER';
+
+  // 마지막 활동 인덱싱
+  const lastActivityByDeal = useMemo(() => {
+    const map = new Map<string, DealActivity>();
+    for (const act of activities) {
+      const cur = map.get(act.deal_id);
+      if (!cur || cur.created_at < act.created_at) map.set(act.deal_id, act);
+    }
+    return map;
+  }, [activities]);
+
+  // 전화번호 정규화 (하이픈/공백 제거)
+  const normalizePhone = (s: string) => s.replace(/[\s\-]/g, '');
+
+  const handleCopyPhone = async (phone: string) => {
+    try {
+      await navigator.clipboard.writeText(normalizePhone(phone));
+      showToast('전화번호가 복사되었습니다. 카카오톡에서 친구추가 → 번호로 검색에 붙여넣으세요.');
+    } catch {
+      showToast('복사 실패. 직접 입력해주세요.');
+    }
+  };
 
   const repMembers = useMemo(
     () => members.filter((m) => m.role === 'REP' || m.id === currentUser.id),
@@ -92,18 +119,36 @@ export default function PipelineClient({
 
   const filteredDeals = useMemo(() => {
     const memberFiltered = deals.filter((d) => d.member_id === activeMemberId);
-    const searchLower = search.trim().toLowerCase();
+    const searchRaw = search.trim();
+    const searchLower = searchRaw.toLowerCase();
+    const searchPhone = normalizePhone(searchRaw);
     return memberFiltered.filter((d) => {
       if (stageFilter !== 'ALL' && d.stage !== stageFilter) return false;
       if (!searchLower) return true;
+      const phoneMatch =
+        searchPhone.length >= 3 && normalizePhone(d.phone).includes(searchPhone);
       return (
         d.customer_name.toLowerCase().includes(searchLower) ||
         d.product_type.toLowerCase().includes(searchLower) ||
-        d.phone.toLowerCase().includes(searchLower) ||
+        phoneMatch ||
         d.notes.toLowerCase().includes(searchLower)
       );
     });
   }, [deals, activeMemberId, search, stageFilter]);
+
+  // ?deal=<id> 쿼리 파라미터로 들어오면 모달 자동 오픈
+  useEffect(() => {
+    const dealId = searchParams.get('deal');
+    if (!dealId) return;
+    const found = deals.find((d) => d.id === dealId);
+    if (found) {
+      setDetailDeal({ ...found });
+      // 화면 리프레시 시 다시 안 열리도록 URL 정리
+      router.replace('/pipeline', { scroll: false });
+    }
+    // deals 변경 시에도 다시 실행되지 않도록 mount 시점만 처리하기 위해 deals 의존 제외
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const optimisticPatch = (id: string, patch: Partial<Deal>) => {
     setDeals((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -372,8 +417,24 @@ export default function PipelineClient({
             </span>
           )}
           {deal.phone && (
-            <span className="inline-flex items-center text-[11px] bg-purple-50 text-purple-700 px-2 py-1 rounded-md font-medium">
-              <Phone className="w-3 h-3 mr-1" /> {deal.phone}
+            <span className="inline-flex items-center text-[11px] bg-purple-50 text-purple-700 rounded-md font-medium overflow-hidden">
+              <a
+                href={`tel:${normalizePhone(deal.phone)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center px-2 py-1 hover:bg-purple-100 transition-colors"
+              >
+                <Phone className="w-3 h-3 mr-1" /> {deal.phone}
+              </a>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCopyPhone(deal.phone);
+                }}
+                className="px-1.5 py-1 hover:bg-purple-100 transition-colors border-l border-purple-200"
+                aria-label="번호 복사 (카카오톡용)"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
             </span>
           )}
         </div>
@@ -383,6 +444,29 @@ export default function PipelineClient({
             <CalendarClock className="w-3 h-3 mr-1" /> 다음 연락: {deal.next_contact_date}
           </div>
         )}
+
+        {(() => {
+          const lastAct = lastActivityByDeal.get(deal.id);
+          if (!lastAct) return null;
+          return (
+            <div className="bg-gray-50 rounded-lg p-2 mb-2 border border-gray-100">
+              <div className="flex items-start gap-1.5">
+                <span className="text-[10px] font-extrabold text-[#3182F6] bg-white px-1.5 py-0.5 rounded shrink-0">
+                  {ACTIVITY_LABELS[lastAct.activity_type]}
+                </span>
+                <p className="text-[11px] text-[#191F28] font-medium line-clamp-2 leading-snug">
+                  {lastAct.content}
+                </p>
+              </div>
+              <p className="text-[10px] text-[#8B95A1] font-medium mt-1">
+                {new Date(lastAct.created_at).toLocaleDateString('ko-KR', {
+                  month: '2-digit',
+                  day: '2-digit',
+                })}
+              </p>
+            </div>
+          );
+        })()}
 
         <div className="flex flex-col mt-2 border-t border-gray-50 pt-2 space-y-1.5">
           <div className="text-[10px] text-gray-400 font-medium">등록: {deal.date}</div>
@@ -606,16 +690,37 @@ export default function PipelineClient({
                 <label className="block text-sm font-semibold text-[#4E5968] mb-2">
                   연락처 (전화번호)
                 </label>
-                <input
-                  type="text"
-                  placeholder="010-1234-5678"
-                  value={detailDeal.phone}
-                  onChange={(e) =>
-                    setDetailDeal({ ...detailDeal, phone: e.target.value })
-                  }
-                  className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                  readOnly={!canManageDeal(detailDeal)}
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    placeholder="010-1234-5678"
+                    value={detailDeal.phone}
+                    onChange={(e) =>
+                      setDetailDeal({ ...detailDeal, phone: e.target.value })
+                    }
+                    className="flex-1 border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
+                    readOnly={!canManageDeal(detailDeal)}
+                  />
+                  {detailDeal.phone && (
+                    <>
+                      <a
+                        href={`tel:${normalizePhone(detailDeal.phone)}`}
+                        className="flex items-center justify-center w-12 bg-[#3182F6] text-white rounded-xl hover:bg-blue-600 transition-colors shrink-0"
+                        aria-label="전화 걸기"
+                      >
+                        <Phone className="w-5 h-5" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyPhone(detailDeal.phone)}
+                        className="flex items-center justify-center w-12 bg-yellow-400 text-[#191F28] rounded-xl hover:bg-yellow-500 transition-colors shrink-0"
+                        aria-label="카카오톡용 번호 복사"
+                      >
+                        <MessageCircle className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

@@ -588,7 +588,7 @@ export default function DashboardClient({
                     return (
                       <Link
                         key={task.key}
-                        href="/pipeline"
+                        href={`/pipeline?deal=${task.dealId}`}
                         className={`flex items-start gap-2 p-2.5 rounded-xl border border-gray-100 ${meta.bg} hover:border-[#3182F6] transition-colors group`}
                       >
                         <span
