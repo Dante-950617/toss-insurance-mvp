@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36" role="img" aria-label="Toss Insurance">
+  <defs>
+    <linearGradient id="tossGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B9BFF"/>
+      <stop offset="100%" stop-color="#3182F6"/>
+    </linearGradient>
+    <linearGradient id="tossDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E5FE8"/>
+      <stop offset="100%" stop-color="#0D47C8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="18" cy="18" r="14" fill="url(#tossGrad)"/>
+  <path d="M 18 4 A 14 14 0 0 1 18 32 Z" fill="url(#tossDark)" opacity="0.8"/>
+  <ellipse cx="14" cy="14" rx="3" ry="2.2" fill="#FFFFFF" opacity="0.35"/>
+</svg>

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  TrendingUp,
   Target,
   KanbanSquare,
   Settings,
@@ -63,8 +62,13 @@ export default function NavBar({
     <nav className="bg-white border-b border-gray-100 px-6 py-4 mb-6 sticky top-0 z-40 shadow-sm">
       <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4">
         <Link href="/dashboard" className="font-extrabold text-lg md:text-xl text-[#191F28] tracking-tight flex items-center shrink-0">
-          <TrendingUp className="w-5 h-5 md:w-6 md:h-6 mr-2 text-[#3182F6]" />
-          Toss Insurance
+          {/* /public/logo.svg 또는 /public/logo.png 둘 다 지원 — 둘 중 하나만 두면 됨 */}
+          <img
+            src="/logo.svg"
+            alt="Toss Insurance"
+            className="w-7 h-7 md:w-8 md:h-8 mr-2"
+          />
+          <span className="lowercase">toss insurance</span>
         </Link>
         <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
           <div className="flex gap-1.5 p-1.5 bg-[#F2F4F6] rounded-2xl overflow-x-auto no-scrollbar flex-1 sm:flex-initial">

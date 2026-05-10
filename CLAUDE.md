@@ -6,6 +6,19 @@
 보험설계사용 토스 스타일 영업 관리 SaaS. Next.js 14 + Supabase + Vercel.
 현재 운영 중: **https://toss-insurance-mvp.vercel.app**
 
+## 더미 계정 (개발/테스트용)
+- `rep1@dummy.com` / pw `demo1234` — 김지원 (시니어 REP)
+- `rep2@dummy.com` / pw `demo1234` — 이현주 (미들 REP)
+- `rep3@dummy.com` / pw `demo1234` — 박민수 (신입 REP)
+- 매니저는 본인 계정 (toolark7@gmail.com)
+- 더미 데이터 전체 시드: `supabase/seed/dummy_data.sql` (또는 part_a~d 분할 파일)
+- 데이터 셋업 내역: 딜 12개 (다양한 단계/결과/카테고리), 활동 36개,
+  태스크 6개, 인사 8개, 프로모션 3개 (Q2 활성 + 신입 캠페인 + 종료된 것)
+
+## 로고
+- `/public/logo.svg` (Toss 스타일 파란 sphere SVG)
+- 실제 PNG 원하면 같은 경로에 `logo.svg` 교체 (NavBar 의 `<img src="/logo.svg" />`)
+
 ## 인프라
 
 | 항목 | 정보 |
