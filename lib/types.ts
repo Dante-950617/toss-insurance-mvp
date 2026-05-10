@@ -61,6 +61,13 @@ export interface Deal {
   next_contact_date: string | null;
   notes: string;
   referrer: string;
+  // 영업 핵심 5필드 (004)
+  category: string;
+  category_custom: string;
+  annual_premium: number;
+  renewal_type: string;
+  maturity_type: string;
+  maturity_custom: string;
   // 고객 상세 정보 (영업 자산)
   customer_birth_date: string | null;
   customer_gender: string | null;
@@ -69,6 +76,64 @@ export interface Deal {
   income_range: string;
   existing_insurance: string;
   interest_keywords: string;
+}
+
+// "기타" 선택 시 텍스트 직접 입력 → category_custom / maturity_custom 활용
+export const CATEGORY_OPTIONS: { value: string; label: string }[] = [
+  { value: '종신', label: '종신' },
+  { value: '건강(실손)', label: '건강 (실손)' },
+  { value: '건강(암)', label: '건강 (암)' },
+  { value: '연금', label: '연금' },
+  { value: '저축', label: '저축' },
+  { value: '자동차', label: '자동차' },
+  { value: 'other', label: '기타 (직접입력)' },
+];
+
+export const RENEWAL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'renewable', label: '갱신형' },
+  { value: 'non_renewable', label: '비갱신형' },
+  { value: 'na', label: '해당없음' },
+];
+
+export const MATURITY_OPTIONS: { value: string; label: string }[] = [
+  { value: '5y', label: '5년' },
+  { value: '10y', label: '10년' },
+  { value: '15y', label: '15년' },
+  { value: '20y', label: '20년' },
+  { value: '30y', label: '30년' },
+  { value: 'whole_life', label: '종신' },
+  { value: 'age_100', label: '100세 만기' },
+  { value: 'other', label: '기타 (직접입력)' },
+];
+
+export const RENEWAL_LABEL: Record<string, string> = {
+  renewable: '갱신형',
+  non_renewable: '비갱신형',
+  na: '해당없음',
+};
+
+export const MATURITY_LABEL: Record<string, string> = {
+  '5y': '5년',
+  '10y': '10년',
+  '15y': '15년',
+  '20y': '20년',
+  '30y': '30년',
+  whole_life: '종신',
+  age_100: '100세 만기',
+};
+
+// 카드/배지에서 카테고리 표시명 (other → custom 텍스트)
+export function categoryDisplay(d: Pick<Deal, 'category' | 'category_custom'>): string {
+  if (!d.category) return '';
+  if (d.category === 'other') return d.category_custom || '기타';
+  return d.category;
+}
+
+// 카드/배지에서 만기 표시명 (other → custom 텍스트)
+export function maturityDisplay(d: Pick<Deal, 'maturity_type' | 'maturity_custom'>): string {
+  if (!d.maturity_type) return '';
+  if (d.maturity_type === 'other') return d.maturity_custom || '기타';
+  return MATURITY_LABEL[d.maturity_type] ?? d.maturity_type;
 }
 
 export type ActivityType =

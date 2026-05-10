@@ -75,6 +75,13 @@ export async function updateDealDetail(
     next_contact_date?: string | null;
     notes?: string;
     referrer?: string;
+    // 영업 핵심 5필드
+    category?: string;
+    category_custom?: string;
+    annual_premium?: number;
+    renewal_type?: string;
+    maturity_type?: string;
+    maturity_custom?: string;
   }
 ) {
   const { supabase } = await requireAuth();

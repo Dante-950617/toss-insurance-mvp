@@ -34,7 +34,17 @@ import {
   addActivity,
 } from '@/lib/actions';
 import { formatCurrency, getDwellDays } from '@/lib/utils';
-import { STAGES, ACTIVITY_LABELS, ACTIVE_ACTIVITY_TYPES } from '@/lib/types';
+import {
+  STAGES,
+  ACTIVITY_LABELS,
+  ACTIVE_ACTIVITY_TYPES,
+  CATEGORY_OPTIONS,
+  RENEWAL_OPTIONS,
+  MATURITY_OPTIONS,
+  RENEWAL_LABEL,
+  categoryDisplay,
+  maturityDisplay,
+} from '@/lib/types';
 import type {
   Profile,
   Deal,
@@ -109,6 +119,8 @@ export default function PipelineClient({
   const [reasonModalDeal, setReasonModalDeal] = useState<Deal | null>(null);
   const [failureReason, setFailureReason] = useState('');
   const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
+  // 연납기준이 사용자가 명시적으로 수정된 적 있는지(트루면 월납 변경 시 자동 덮어쓰기 X)
+  const [annualEdited, setAnnualEdited] = useState(false);
   const [confirmDeleteDealId, setConfirmDeleteDealId] = useState<string | null>(null);
   const [newActivity, setNewActivity] = useState({
     type: 'call_success' as ActivityType,
@@ -143,12 +155,19 @@ export default function PipelineClient({
     const found = deals.find((d) => d.id === dealId);
     if (found) {
       setDetailDeal({ ...found });
+      setAnnualEdited((found.annual_premium ?? 0) > 0);
       // 화면 리프레시 시 다시 안 열리도록 URL 정리
       router.replace('/pipeline', { scroll: false });
     }
     // deals 변경 시에도 다시 실행되지 않도록 mount 시점만 처리하기 위해 deals 의존 제외
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // 카드 클릭으로 모달 열기 (연납 수정 여부 초기화 동반)
+  const openDetailDeal = (deal: Deal) => {
+    setDetailDeal({ ...deal });
+    setAnnualEdited((deal.annual_premium ?? 0) > 0);
+  };
 
   const optimisticPatch = (id: string, patch: Partial<Deal>) => {
     setDeals((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -187,6 +206,12 @@ export default function PipelineClient({
       next_contact_date: null,
       notes: '',
       referrer: '',
+      category: '',
+      category_custom: '',
+      annual_premium: 0,
+      renewal_type: '',
+      maturity_type: '',
+      maturity_custom: '',
       customer_birth_date: null,
       customer_gender: null,
       family_info: '',
@@ -268,16 +293,19 @@ export default function PipelineClient({
     const id = detailDeal.id;
     const original = deals.find((d) => d.id === id) ?? detailDeal;
     const patch = {
-      product_type: detailDeal.product_type,
       monthly_premium: detailDeal.monthly_premium,
-      competitor: detailDeal.competitor,
       manager_comment: detailDeal.manager_comment,
       stage: detailDeal.stage,
-      deal_value: detailDeal.deal_value,
       phone: detailDeal.phone,
       next_contact_date: detailDeal.next_contact_date,
       notes: detailDeal.notes,
       referrer: detailDeal.referrer,
+      category: detailDeal.category,
+      category_custom: detailDeal.category_custom,
+      annual_premium: detailDeal.annual_premium,
+      renewal_type: detailDeal.renewal_type,
+      maturity_type: detailDeal.maturity_type,
+      maturity_custom: detailDeal.maturity_custom,
     };
 
     const today = new Date().toISOString().slice(0, 10);
@@ -360,10 +388,17 @@ export default function PipelineClient({
       deal.next_contact_date &&
       new Date(deal.next_contact_date) >= new Date(Date.now() - 86400000);
 
+    const catLabel = categoryDisplay(deal);
+    const matLabel = maturityDisplay(deal);
+    const renewalLabel =
+      deal.renewal_type && deal.renewal_type !== 'na'
+        ? RENEWAL_LABEL[deal.renewal_type]
+        : '';
+
     return (
       <div
         key={deal.id}
-        onClick={() => setDetailDeal({ ...deal })}
+        onClick={() => openDetailDeal(deal)}
         className={`bg-white rounded-[16px] p-4 shadow-sm border ${
           isStale ? 'border-red-300' : 'border-gray-100'
         } hover:border-[#3182F6] hover:shadow-md transition-all group cursor-pointer`}
@@ -408,19 +443,24 @@ export default function PipelineClient({
         </div>
 
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {deal.product_type && (
-            <span className="inline-flex items-center text-[11px] bg-[#F2F4F6] text-[#4E5968] px-2 py-1 rounded-md font-medium">
-              <FileText className="w-3 h-3 mr-1 text-gray-400" /> {deal.product_type}
+          {catLabel && (
+            <span className="inline-flex items-center text-[11px] bg-[#F2F4F6] text-[#4E5968] px-2 py-1 rounded-md font-bold">
+              <FileText className="w-3 h-3 mr-1 text-gray-400" /> {catLabel}
             </span>
           )}
-          {deal.deal_value > 0 && (
+          {deal.annual_premium > 0 && (
             <span className="inline-flex items-center text-[11px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold">
-              계약 {formatCurrency(deal.deal_value)}원
+              연납 {formatCurrency(deal.annual_premium)}원
             </span>
           )}
           {deal.monthly_premium > 0 && (
             <span className="inline-flex items-center text-[11px] bg-green-50 text-green-700 px-2 py-1 rounded-md font-medium">
               <CreditCard className="w-3 h-3 mr-1" /> 월 {formatCurrency(deal.monthly_premium)}
+            </span>
+          )}
+          {(renewalLabel || matLabel) && (
+            <span className="inline-flex items-center text-[11px] bg-orange-50 text-orange-700 px-2 py-1 rounded-md font-medium">
+              {[renewalLabel, matLabel].filter(Boolean).join(' · ')}
             </span>
           )}
           {deal.phone && (
@@ -848,72 +888,198 @@ export default function PipelineClient({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                  제안 상품 유형
-                </label>
-                <input
-                  type="text"
-                  placeholder="예: 종합건강보험, 종신보험 등"
-                  value={detailDeal.product_type}
-                  onChange={(e) =>
-                    setDetailDeal({ ...detailDeal, product_type: e.target.value })
-                  }
-                  className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                  readOnly={!canManageDeal(detailDeal)}
-                />
-              </div>
+              {/* 영업 핵심 5필드 */}
+              <div className="bg-blue-50/40 rounded-2xl p-4 border border-blue-100 space-y-4">
+                <h4 className="text-sm font-bold text-[#3182F6] flex items-center">
+                  <FileText className="w-4 h-4 mr-1.5" /> 상품 정보
+                </h4>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                    예상 월 납입액
-                  </label>
-                  <input
-                    type="number"
-                    value={detailDeal.monthly_premium || ''}
-                    onChange={(e) =>
-                      setDetailDeal({
-                        ...detailDeal,
-                        monthly_premium: Number(e.target.value),
-                      })
-                    }
-                    className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                    readOnly={!canManageDeal(detailDeal)}
-                  />
+                {/* 카테고리 + 기타 직접입력 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                      카테고리
+                    </label>
+                    <select
+                      value={detailDeal.category}
+                      onChange={(e) =>
+                        setDetailDeal({
+                          ...detailDeal,
+                          category: e.target.value,
+                          // 'other' 가 아니면 custom 텍스트 비움
+                          category_custom:
+                            e.target.value === 'other' ? detailDeal.category_custom : '',
+                        })
+                      }
+                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                      disabled={!canManageDeal(detailDeal)}
+                    >
+                      <option value="">선택</option>
+                      {CATEGORY_OPTIONS.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {detailDeal.category === 'other' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                        카테고리 직접입력
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="예: 변액유니버셜"
+                        value={detailDeal.category_custom}
+                        onChange={(e) =>
+                          setDetailDeal({
+                            ...detailDeal,
+                            category_custom: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                        readOnly={!canManageDeal(detailDeal)}
+                      />
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                    계약 매출액 (원) <span className="text-[#3182F6]">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="계약완료 시 자동 합산"
-                    value={detailDeal.deal_value || ''}
-                    onChange={(e) =>
-                      setDetailDeal({
-                        ...detailDeal,
-                        deal_value: Number(e.target.value),
-                      })
-                    }
-                    className="w-full border border-blue-200 bg-blue-50/30 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                    readOnly={!canManageDeal(detailDeal)}
-                  />
+
+                {/* 월납입 + 연납기준 (자동계산 포함) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                      월납입 예정액 (원)
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="예: 100000"
+                      value={detailDeal.monthly_premium || ''}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setDetailDeal({
+                          ...detailDeal,
+                          monthly_premium: v,
+                          // 사용자가 연납을 명시적으로 손대지 않은 경우만 자동 동기화
+                          ...(annualEdited
+                            ? {}
+                            : { annual_premium: v * 12 }),
+                        });
+                      }}
+                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                      readOnly={!canManageDeal(detailDeal)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5 flex items-center justify-between">
+                      <span>
+                        연납기준 (원) <span className="text-[#3182F6]">*KPI</span>
+                      </span>
+                      {canManageDeal(detailDeal) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetailDeal({
+                              ...detailDeal,
+                              annual_premium:
+                                (detailDeal.monthly_premium || 0) * 12,
+                            });
+                            setAnnualEdited(false);
+                          }}
+                          className="text-[10px] font-bold text-[#3182F6] hover:underline"
+                        >
+                          = 월×12
+                        </button>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="자동계산 (월×12)"
+                      value={detailDeal.annual_premium || ''}
+                      onChange={(e) => {
+                        setDetailDeal({
+                          ...detailDeal,
+                          annual_premium: Number(e.target.value),
+                        });
+                        setAnnualEdited(true);
+                      }}
+                      className="w-full border border-blue-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                      readOnly={!canManageDeal(detailDeal)}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#4E5968] mb-2">
-                    경쟁사
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="A생명"
-                    value={detailDeal.competitor}
-                    onChange={(e) =>
-                      setDetailDeal({ ...detailDeal, competitor: e.target.value })
-                    }
-                    className="w-full border border-gray-200 bg-gray-50/50 rounded-xl p-3 focus:bg-white focus:ring-2 focus:ring-[#3182F6] outline-none transition-all font-medium"
-                    readOnly={!canManageDeal(detailDeal)}
-                  />
+
+                {/* 갱신 여부 + 만기 구분 (+ 만기 기타 직접입력) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                      갱신 여부
+                    </label>
+                    <select
+                      value={detailDeal.renewal_type}
+                      onChange={(e) =>
+                        setDetailDeal({
+                          ...detailDeal,
+                          renewal_type: e.target.value,
+                        })
+                      }
+                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                      disabled={!canManageDeal(detailDeal)}
+                    >
+                      <option value="">선택</option>
+                      {RENEWAL_OPTIONS.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                      만기 구분
+                    </label>
+                    <select
+                      value={detailDeal.maturity_type}
+                      onChange={(e) =>
+                        setDetailDeal({
+                          ...detailDeal,
+                          maturity_type: e.target.value,
+                          maturity_custom:
+                            e.target.value === 'other'
+                              ? detailDeal.maturity_custom
+                              : '',
+                        })
+                      }
+                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                      disabled={!canManageDeal(detailDeal)}
+                    >
+                      <option value="">선택</option>
+                      {MATURITY_OPTIONS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {detailDeal.maturity_type === 'other' && (
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                        만기 직접입력
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="예: 80세 만기"
+                        value={detailDeal.maturity_custom}
+                        onChange={(e) =>
+                          setDetailDeal({
+                            ...detailDeal,
+                            maturity_custom: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                        readOnly={!canManageDeal(detailDeal)}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
