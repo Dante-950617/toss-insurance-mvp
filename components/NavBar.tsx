@@ -13,6 +13,7 @@ import {
   BarChart2,
   BookOpen,
   Users,
+  Gift,
 } from 'lucide-react';
 import type { UserRole } from '@/lib/types';
 
@@ -45,6 +46,7 @@ export default function NavBar({
     },
     { href: '/calendar', label: '캘린더', icon: Calendar },
     { href: '/leaderboard', label: '리더보드', icon: Trophy },
+    { href: '/promotions', label: '프로모션', icon: Gift },
     { href: '/recruits', label: '인사', icon: Users },
     { href: '/scripts', label: '스크립트', icon: BookOpen },
     { href: '/analytics', label: '분석', icon: BarChart2, managerOnly: true },

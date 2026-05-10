@@ -8,6 +8,7 @@ import type {
   UserStatus,
   ActivityType,
   RecruitKind,
+  PromotionStatus,
 } from './types';
 
 async function requireAuth() {
@@ -358,6 +359,113 @@ export async function deleteRecruit(id: string) {
   const { error } = await supabase.from('recruits').delete().eq('id', id);
   if (error) return { error: error.message };
   revalidatePath('/recruits');
+  return { success: true };
+}
+
+// -------------------- Promotions (매니저 전용 등록/수정) --------------------
+export async function createPromotion(payload: {
+  name: string;
+  start_date: string;   // YYYY-MM-DD
+  end_date: string;
+  status: PromotionStatus;
+  description?: string;
+  per_month_threshold: number;
+  total_threshold: number;
+}) {
+  const { supabase, user } = await requireActiveManager();
+  const name = payload.name.trim();
+  if (!name) return { error: '프로모션 이름을 입력해주세요' };
+  if (payload.per_month_threshold <= 0 && payload.total_threshold <= 0) {
+    return { error: '단월 또는 누적 기준 중 하나는 반드시 입력해야 합니다' };
+  }
+  if (payload.start_date > payload.end_date) {
+    return { error: '시작일이 종료일보다 늦을 수 없습니다' };
+  }
+  const { data, error } = await supabase
+    .from('promotions')
+    .insert({
+      name,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      status: payload.status,
+      description: payload.description?.trim() ?? '',
+      per_month_threshold: payload.per_month_threshold,
+      total_threshold: payload.total_threshold,
+      created_by: user.id,
+    })
+    .select('id')
+    .single();
+  if (error) return { error: error.message };
+  revalidatePath('/promotions');
+  revalidatePath('/dashboard');
+  return { success: true, id: data?.id };
+}
+
+export async function updatePromotion(
+  id: string,
+  patch: {
+    name?: string;
+    start_date?: string;
+    end_date?: string;
+    status?: PromotionStatus;
+    description?: string;
+    per_month_threshold?: number;
+    total_threshold?: number;
+  }
+) {
+  const { supabase } = await requireActiveManager();
+  if (
+    (patch.per_month_threshold ?? 1) <= 0 &&
+    (patch.total_threshold ?? 1) <= 0
+  ) {
+    return { error: '단월 또는 누적 기준 중 하나는 반드시 입력해야 합니다' };
+  }
+  const { error } = await supabase.from('promotions').update(patch).eq('id', id);
+  if (error) return { error: error.message };
+  revalidatePath('/promotions');
+  revalidatePath(`/promotions/${id}`);
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+export async function deletePromotion(id: string) {
+  const { supabase } = await requireActiveManager();
+  const { error } = await supabase.from('promotions').delete().eq('id', id);
+  if (error) return { error: error.message };
+  revalidatePath('/promotions');
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+// -------------------- Deal ↔ Promotions (M:N) --------------------
+// 한 딜의 프로모션 매핑 일괄 교체
+//   entries: [{promotion_id, piv_rate}, ...]   비어있으면 모두 해제
+export async function setDealPromotions(
+  dealId: string,
+  entries: { promotion_id: string; piv_rate: number }[]
+) {
+  const { supabase } = await requireAuth();
+
+  // 기존 매핑 모두 삭제
+  const { error: delErr } = await supabase
+    .from('deal_promotions')
+    .delete()
+    .eq('deal_id', dealId);
+  if (delErr) return { error: delErr.message };
+
+  // 새 매핑 일괄 삽입
+  if (entries.length > 0) {
+    const rows = entries.map((e) => ({
+      deal_id: dealId,
+      promotion_id: e.promotion_id,
+      piv_rate: e.piv_rate,
+    }));
+    const { error: insErr } = await supabase.from('deal_promotions').insert(rows);
+    if (insErr) return { error: insErr.message };
+  }
+
+  revalidatePath('/pipeline');
+  revalidatePath('/promotions');
   return { success: true };
 }
 

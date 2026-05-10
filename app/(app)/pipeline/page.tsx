@@ -1,7 +1,13 @@
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentProfile } from '@/lib/auth';
 import PipelineClient from '@/components/PipelineClient';
-import type { Profile, Deal, DealActivity } from '@/lib/types';
+import type {
+  Profile,
+  Deal,
+  DealActivity,
+  Promotion,
+  DealPromotion,
+} from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,13 +17,25 @@ export default async function PipelinePage() {
 
   const supabase = await createClient();
 
-  const [{ data: members }, { data: deals }, { data: activities }] = await Promise.all([
+  const [
+    { data: members },
+    { data: deals },
+    { data: activities },
+    { data: promotions },
+    { data: dealPromotions },
+  ] = await Promise.all([
     supabase.from('profiles').select('*').eq('status', 'ACTIVE').order('name'),
     supabase.from('deals').select('*').order('created_at', { ascending: false }),
     supabase
       .from('deal_activities')
       .select('*')
       .order('created_at', { ascending: false }),
+    supabase
+      .from('promotions')
+      .select('*')
+      .eq('status', 'active')
+      .order('end_date'),
+    supabase.from('deal_promotions').select('*'),
   ]);
 
   return (
@@ -26,6 +44,8 @@ export default async function PipelinePage() {
       members={(members ?? []) as Profile[]}
       initialDeals={(deals ?? []) as Deal[]}
       initialActivities={(activities ?? []) as DealActivity[]}
+      activePromotions={(promotions ?? []) as Promotion[]}
+      initialDealPromotions={(dealPromotions ?? []) as DealPromotion[]}
     />
   );
 }

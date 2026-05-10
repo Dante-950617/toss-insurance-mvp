@@ -89,6 +89,7 @@ export interface Deal {
   manager_comment: string;
   date: string;
   last_updated: string;
+  won_at: string | null;          // WIN 처리 시점 (009)
   created_at: string;
   deal_value: number;
   phone: string;
@@ -290,6 +291,36 @@ export interface MemberInvitation {
   conversion_rate: number;
   lead_time: number;
   invited_at: string;
+}
+
+// 프로모션
+export type PromotionStatus = 'draft' | 'active' | 'closed';
+
+export const PROMOTION_STATUS_LABEL: Record<PromotionStatus, string> = {
+  draft: '준비중',
+  active: '진행중',
+  closed: '종료',
+};
+
+export interface Promotion {
+  id: string;
+  name: string;
+  start_date: string;       // YYYY-MM-DD
+  end_date: string;         // YYYY-MM-DD
+  status: PromotionStatus;
+  description: string;
+  per_month_threshold: number;   // 0 = 미사용
+  total_threshold: number;       // 0 = 미사용
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DealPromotion {
+  deal_id: string;
+  promotion_id: string;
+  piv_rate: number;             // 32.5 = 32.5%
+  created_at: string;
 }
 
 // 인사 (지인/지원자 인적사항)

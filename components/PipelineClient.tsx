@@ -36,6 +36,7 @@ import {
   deleteDeal,
   addActivity,
   setDealOutcome,
+  setDealPromotions,
 } from '@/lib/actions';
 import { formatCurrency, getDwellDays } from '@/lib/utils';
 import {
@@ -59,6 +60,8 @@ import type {
   DealActivity,
   ActivityType,
   DealOutcome,
+  Promotion,
+  DealPromotion,
 } from '@/lib/types';
 
 const FAILURE_REASONS = [
@@ -74,16 +77,27 @@ export default function PipelineClient({
   members,
   initialDeals,
   initialActivities,
+  activePromotions,
+  initialDealPromotions,
 }: {
   currentUser: Profile;
   members: Profile[];
   initialDeals: Deal[];
   initialActivities: DealActivity[];
+  activePromotions: Promotion[];
+  initialDealPromotions: DealPromotion[];
 }) {
   const { showToast } = useToast();
   const [, startTransition] = useTransition();
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
   const [activities, setActivities] = useState<DealActivity[]>(initialActivities);
+  const [dealPromos, setDealPromos] = useState<DealPromotion[]>(
+    initialDealPromotions
+  );
+  // 모달 내부 — 현재 편집중인 딜의 프로모션 매핑 (체크 + PIV율)
+  const [editingPromos, setEditingPromos] = useState<
+    Record<string, { checked: boolean; rate: string }>
+  >({});
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -154,6 +168,27 @@ export default function PipelineClient({
     });
   }, [deals, activeMemberId, search, stageFilter]);
 
+  // 프로모션 매핑 초기화 헬퍼
+  // 이미 매핑된 프로모션은 체크 + 기존 rate. 미매핑 활성 프로모션 중
+  // 딜 시점이 기간 내인 경우 자동 체크 (rate는 빈값)
+  const initEditingPromos = (deal: Deal) => {
+    const map: Record<string, { checked: boolean; rate: string }> = {};
+    const dealRefDate = (deal.won_at ?? new Date().toISOString()).slice(0, 10);
+    for (const p of activePromotions) {
+      const existing = dealPromos.find(
+        (m) => m.deal_id === deal.id && m.promotion_id === p.id
+      );
+      if (existing) {
+        map[p.id] = { checked: true, rate: String(existing.piv_rate) };
+      } else {
+        const inRange =
+          dealRefDate >= p.start_date && dealRefDate <= p.end_date;
+        map[p.id] = { checked: inRange, rate: '' };
+      }
+    }
+    setEditingPromos(map);
+  };
+
   // ?deal=<id> 쿼리 파라미터로 들어오면 모달 자동 오픈
   useEffect(() => {
     const dealId = searchParams.get('deal');
@@ -161,6 +196,7 @@ export default function PipelineClient({
     const found = deals.find((d) => d.id === dealId);
     if (found) {
       setDetailDeal({ ...found });
+      initEditingPromos(found);
       // 화면 리프레시 시 다시 안 열리도록 URL 정리
       router.replace('/pipeline', { scroll: false });
     }
@@ -170,6 +206,7 @@ export default function PipelineClient({
 
   const openDetailDeal = (deal: Deal) => {
     setDetailDeal({ ...deal });
+    initEditingPromos(deal);
   };
 
   const optimisticPatch = (id: string, patch: Partial<Deal>) => {
@@ -204,6 +241,7 @@ export default function PipelineClient({
       manager_comment: '',
       date: today,
       last_updated: today,
+      won_at: null,
       created_at: new Date().toISOString(),
       deal_value: 0,
       phone: '',
@@ -351,16 +389,48 @@ export default function PipelineClient({
     };
 
     const today = new Date().toISOString().slice(0, 10);
+
+    // 프로모션 매핑 변경분 수집
+    const newPromoEntries: { promotion_id: string; piv_rate: number }[] = [];
+    for (const [pid, v] of Object.entries(editingPromos)) {
+      if (!v.checked) continue;
+      const rate = Number(v.rate);
+      if (Number.isNaN(rate) || rate <= 0) continue;
+      newPromoEntries.push({ promotion_id: pid, piv_rate: rate });
+    }
+
     optimisticPatch(id, { ...patch, last_updated: today });
+    // 프로모션 매핑 optimistic update
+    const prevPromos = dealPromos.filter((m) => m.deal_id === id);
+    setDealPromos((prev) => [
+      ...prev.filter((m) => m.deal_id !== id),
+      ...newPromoEntries.map((e) => ({
+        deal_id: id,
+        promotion_id: e.promotion_id,
+        piv_rate: e.piv_rate,
+        created_at: new Date().toISOString(),
+      })),
+    ]);
     setDetailDeal(null);
+    setEditingPromos({});
 
     startTransition(async () => {
       const res = await updateDealDetail(id, patch);
       if (res.error) {
         optimisticPatch(id, original);
         showToast(`저장 실패: ${res.error}`);
+        return;
+      }
+      const promoRes = await setDealPromotions(id, newPromoEntries);
+      if (promoRes.error) {
+        // 프로모션 매핑 롤백
+        setDealPromos((prev) => [
+          ...prev.filter((m) => m.deal_id !== id),
+          ...prevPromos,
+        ]);
+        showToast(`프로모션 매핑 저장 실패: ${promoRes.error}`);
       } else {
-        showToast('딜 상세 정보가 저장되었습니다.');
+        showToast('저장되었습니다.');
       }
     });
   };
@@ -1228,6 +1298,90 @@ export default function PipelineClient({
                   readOnly={!canManageDeal(detailDeal)}
                 />
               </div>
+
+              {/* 프로모션 적용 (활성 프로모션이 있을 때만) */}
+              {activePromotions.length > 0 && (
+                <div className="bg-purple-50/40 rounded-2xl border border-purple-100 p-4 space-y-3">
+                  <h4 className="text-sm font-bold text-purple-700 flex items-center">
+                    <Trophy className="w-4 h-4 mr-1.5" />
+                    프로모션 적용 ({activePromotions.length}건)
+                  </h4>
+                  <p className="text-[10px] text-[#8B95A1] font-medium">
+                    체크박스 = 이 딜을 해당 프로모션에 포함 / PIV율 = 월납 환산 비율(%)
+                  </p>
+                  <div className="space-y-2">
+                    {activePromotions.map((p) => {
+                      const v =
+                        editingPromos[p.id] ?? { checked: false, rate: '' };
+                      return (
+                        <div
+                          key={p.id}
+                          className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-2 flex-wrap"
+                        >
+                          <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={v.checked}
+                              disabled={!canManageDeal(detailDeal)}
+                              onChange={(e) =>
+                                setEditingPromos((prev) => ({
+                                  ...prev,
+                                  [p.id]: {
+                                    ...v,
+                                    checked: e.target.checked,
+                                  },
+                                }))
+                              }
+                              className="w-4 h-4 cursor-pointer"
+                            />
+                            <span className="text-sm font-bold text-[#191F28] truncate">
+                              {p.name}
+                            </span>
+                            <span className="text-[10px] text-[#8B95A1] font-medium shrink-0">
+                              {p.start_date}~{p.end_date}
+                            </span>
+                          </label>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="999"
+                              placeholder="32.5"
+                              value={v.rate}
+                              disabled={
+                                !v.checked || !canManageDeal(detailDeal)
+                              }
+                              onChange={(e) =>
+                                setEditingPromos((prev) => ({
+                                  ...prev,
+                                  [p.id]: { ...v, rate: e.target.value },
+                                }))
+                              }
+                              className="w-20 border border-gray-200 bg-white rounded-lg p-2 text-sm font-bold focus:ring-2 focus:ring-purple-400 outline-none disabled:bg-gray-100 disabled:text-gray-400 text-right"
+                            />
+                            <span className="text-xs font-bold text-[#4E5968]">%</span>
+                          </div>
+                          {v.checked &&
+                            Number(v.rate) > 0 &&
+                            detailDeal.monthly_premium > 0 && (
+                              <div className="w-full text-[10px] text-purple-700 font-bold mt-1 pl-6">
+                                환산 PIV ={' '}
+                                {formatCurrency(
+                                  Math.round(
+                                    detailDeal.monthly_premium *
+                                      (Number(v.rate) / 100)
+                                  )
+                                )}
+                                원
+                              </div>
+                            )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* 고객 상세 정보 (펼치기) */}
               <details className="bg-[#F9FAFB] rounded-2xl border border-gray-100 group">
