@@ -2,7 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import type { DealStage, DealOutcome, UserStatus, ActivityType } from './types';
+import type {
+  DealStage,
+  DealOutcome,
+  UserStatus,
+  ActivityType,
+  RecruitKind,
+} from './types';
 
 async function requireAuth() {
   const supabase = await createClient();
@@ -300,6 +306,58 @@ export async function deleteScript(id: string) {
   const { error } = await supabase.from('sales_scripts').delete().eq('id', id);
   if (error) return { error: error.message };
   revalidatePath('/scripts');
+  return { success: true };
+}
+
+// -------------------- Recruits (인사: 지인/지원자) --------------------
+export async function createRecruit(payload: {
+  kind: RecruitKind;
+  name: string;
+  age?: number | null;
+  gender?: 'M' | 'F' | '';
+  referrer?: string;
+  memo?: string;
+}) {
+  const { supabase, user } = await requireAuth();
+  const name = payload.name.trim();
+  if (!name) return { error: '이름을 입력해주세요' };
+  const { error } = await supabase.from('recruits').insert({
+    owner_id: user.id,
+    kind: payload.kind,
+    name,
+    age: payload.age ?? null,
+    gender: payload.gender ?? '',
+    referrer: payload.referrer?.trim() ?? '',
+    memo: payload.memo?.trim() ?? '',
+  });
+  if (error) return { error: error.message };
+  revalidatePath('/recruits');
+  return { success: true };
+}
+
+export async function updateRecruit(
+  id: string,
+  patch: {
+    kind?: RecruitKind;
+    name?: string;
+    age?: number | null;
+    gender?: 'M' | 'F' | '';
+    referrer?: string;
+    memo?: string;
+  }
+) {
+  const { supabase } = await requireAuth();
+  const { error } = await supabase.from('recruits').update(patch).eq('id', id);
+  if (error) return { error: error.message };
+  revalidatePath('/recruits');
+  return { success: true };
+}
+
+export async function deleteRecruit(id: string) {
+  const { supabase } = await requireAuth();
+  const { error } = await supabase.from('recruits').delete().eq('id', id);
+  if (error) return { error: error.message };
+  revalidatePath('/recruits');
   return { success: true };
 }
 

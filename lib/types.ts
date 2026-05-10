@@ -292,6 +292,27 @@ export interface MemberInvitation {
   invited_at: string;
 }
 
+// 인사 (지인/지원자 인적사항)
+export type RecruitKind = 'acquaintance' | 'applicant';
+
+export const RECRUIT_KIND_LABEL: Record<RecruitKind, string> = {
+  acquaintance: '지인',
+  applicant: '지원자',
+};
+
+export interface Recruit {
+  id: string;
+  owner_id: string;
+  kind: RecruitKind;
+  name: string;
+  age: number | null;
+  gender: 'M' | 'F' | '';
+  referrer: string;
+  memo: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CalculatedMember extends Profile {
   remaining_sales: number;
   needed_deals: number;
