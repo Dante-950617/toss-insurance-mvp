@@ -306,10 +306,12 @@ export default function AnalyticsClient({
                   idx > 0 && funnelRows[idx - 1].reached > 0
                     ? (r.reached / funnelRows[idx - 1].reached) * 100
                     : 100;
+                // 막대 끝이 너무 위/아래 끝이면 칩이 잘리니 클램프
+                const chipBottomPct = Math.min(Math.max(heightPct, 8), 95);
                 return (
                   <div key={r.stage} className="flex flex-col items-center min-w-0">
                     {/* 상단: 비율 + 카운트 */}
-                    <div className="text-center mb-2 w-full">
+                    <div className="text-center mb-2 w-full h-[42px]">
                       <div className="text-base md:text-lg font-extrabold text-[#191F28] leading-tight">
                         {r.pct.toFixed(1)}%
                       </div>
@@ -319,26 +321,32 @@ export default function AnalyticsClient({
                     </div>
 
                     {/* 막대 — 높이가 % 비례 */}
-                    <div className="w-full h-56 bg-[#F2F4F6] rounded-t-md relative flex flex-col justify-end overflow-hidden border-b-2 border-[#3182F6]">
+                    <div className="w-full h-56 bg-[#F2F4F6] rounded-t-md relative overflow-hidden border-b-2 border-[#3182F6]">
                       <div
-                        className="w-full bg-gradient-to-b from-[#5B9BFF] to-[#3182F6] transition-all"
+                        className="absolute bottom-0 left-0 w-full bg-gradient-to-b from-[#5B9BFF] to-[#3182F6] transition-all"
                         style={{ height: `${heightPct}%` }}
                       />
-                      {/* 이전 단계 대비 전환율 (2번째부터) */}
+                      {/* 이전 단계 대비 전환율 — 막대 끝(채워진 영역 top edge)에 얹음 */}
                       {idx > 0 && (
-                        <div className="absolute top-1.5 left-1/2 -translate-x-1/2 bg-white text-[#4E5968] text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm border border-gray-200 whitespace-nowrap">
+                        <div
+                          className="absolute left-1/2 bg-white text-[#191F28] text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm border border-gray-200 whitespace-nowrap"
+                          style={{
+                            bottom: `${chipBottomPct}%`,
+                            transform: 'translate(-50%, 50%)',
+                          }}
+                        >
                           {dropFromPrev.toFixed(0)}%
                         </div>
                       )}
                     </div>
 
-                    {/* 하단: 단계명 + LOSE/WIN */}
-                    <div className="text-center mt-2 w-full px-0.5">
+                    {/* 하단: 단계명 + LOSE/WIN — 고정 높이로 정렬 일관성 */}
+                    <div className="text-center mt-2 w-full px-0.5 min-h-[36px]">
                       <div className="text-[10px] md:text-[11px] font-bold text-[#191F28] truncate leading-tight">
                         <span className="text-[#8B95A1] mr-0.5">{idx + 1}.</span>
                         {r.stage}
                       </div>
-                      <div className="text-[10px] mt-1 flex items-center justify-center gap-1 flex-wrap">
+                      <div className="text-[10px] mt-1 flex items-center justify-center gap-1 flex-wrap min-h-[14px]">
                         {r.lostHere > 0 && (
                           <span className="text-red-500 font-bold">
                             ✖{r.lostHere}

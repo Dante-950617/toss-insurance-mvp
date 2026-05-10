@@ -1109,7 +1109,7 @@ function FunnelMini({ deals, title }: { deals: Deal[]; title: string }) {
         </div>
       </div>
       <div
-        className="grid gap-2 items-end"
+        className="grid gap-2"
         style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}
       >
         {rows.map((r, idx) => {
@@ -1118,10 +1118,11 @@ function FunnelMini({ deals, title }: { deals: Deal[]; title: string }) {
             idx > 0 && rows[idx - 1].reached > 0
               ? (r.reached / rows[idx - 1].reached) * 100
               : 100;
+          const chipBottomPct = Math.min(Math.max(heightPct, 12), 92);
           return (
             <div key={r.stage} className="flex flex-col items-center min-w-0">
-              {/* 상단 비율 */}
-              <div className="text-center mb-1.5 w-full">
+              {/* 상단 비율 — 고정 높이로 정렬 */}
+              <div className="text-center mb-1.5 w-full h-[34px]">
                 <div className="text-sm font-extrabold text-[#191F28] leading-tight">
                   {r.pct.toFixed(0)}%
                 </div>
@@ -1130,32 +1131,36 @@ function FunnelMini({ deals, title }: { deals: Deal[]; title: string }) {
                 </div>
               </div>
               {/* 막대 */}
-              <div className="w-full h-24 bg-[#F2F4F6] rounded-t-md relative flex flex-col justify-end overflow-hidden border-b-2 border-[#3182F6]">
+              <div className="w-full h-24 bg-[#F2F4F6] rounded-t-md relative overflow-hidden border-b-2 border-[#3182F6]">
                 <div
-                  className="w-full bg-gradient-to-b from-[#5B9BFF] to-[#3182F6]"
+                  className="absolute bottom-0 left-0 w-full bg-gradient-to-b from-[#5B9BFF] to-[#3182F6]"
                   style={{ height: `${heightPct}%` }}
                 />
                 {idx > 0 && (
-                  <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-white text-[#4E5968] text-[9px] font-extrabold px-1 py-0 rounded-full shadow-sm border border-gray-200 whitespace-nowrap">
+                  <div
+                    className="absolute left-1/2 bg-white text-[#191F28] text-[9px] font-extrabold px-1 py-0 rounded-full shadow-sm border border-gray-200 whitespace-nowrap"
+                    style={{
+                      bottom: `${chipBottomPct}%`,
+                      transform: 'translate(-50%, 50%)',
+                    }}
+                  >
                     {dropFromPrev.toFixed(0)}%
                   </div>
                 )}
               </div>
-              {/* 단계명 */}
+              {/* 단계명 + LOSE/WIN — 고정 높이 */}
               <div className="text-[10px] font-bold text-[#4E5968] mt-1.5 truncate w-full text-center">
                 <span className="text-[#8B95A1] mr-0.5">{idx + 1}.</span>
                 {r.stage}
               </div>
-              {(r.lost > 0 || r.won > 0) && (
-                <div className="text-[10px] mt-0.5 flex items-center justify-center gap-1 flex-wrap">
-                  {r.lost > 0 && (
-                    <span className="text-red-500 font-bold">✖{r.lost}</span>
-                  )}
-                  {r.won > 0 && (
-                    <span className="text-green-600 font-bold">🏆{r.won}</span>
-                  )}
-                </div>
-              )}
+              <div className="text-[10px] mt-0.5 flex items-center justify-center gap-1 flex-wrap min-h-[14px]">
+                {r.lost > 0 && (
+                  <span className="text-red-500 font-bold">✖{r.lost}</span>
+                )}
+                {r.won > 0 && (
+                  <span className="text-green-600 font-bold">🏆{r.won}</span>
+                )}
+              </div>
             </div>
           );
         })}
