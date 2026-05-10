@@ -38,12 +38,12 @@ import {
   STAGES,
   ACTIVITY_LABELS,
   ACTIVE_ACTIVITY_TYPES,
-  CATEGORY_OPTIONS,
-  RENEWAL_OPTIONS,
-  MATURITY_OPTIONS,
-  RENEWAL_LABEL,
-  categoryDisplay,
-  maturityDisplay,
+  INSURANCE_LINES,
+  SUB_CATEGORIES_BY_LINE,
+  COVERAGE_TYPES,
+  COVERAGE_DETAILS_BY_TYPE,
+  subCategoryDisplay,
+  coverageDetailDisplay,
 } from '@/lib/types';
 import type {
   Profile,
@@ -201,8 +201,14 @@ export default function PipelineClient({
       next_contact_date: null,
       notes: '',
       referrer: '',
-      category: '',
+      insurance_line: '',
+      category_sub: '',
       category_custom: '',
+      coverage_type: '',
+      coverage_detail: '',
+      coverage_custom: '',
+      // legacy
+      category: '',
       annual_premium: 0,
       renewal_type: '',
       maturity_type: '',
@@ -295,11 +301,12 @@ export default function PipelineClient({
       next_contact_date: detailDeal.next_contact_date,
       notes: detailDeal.notes,
       referrer: detailDeal.referrer,
-      category: detailDeal.category,
+      insurance_line: detailDeal.insurance_line,
+      category_sub: detailDeal.category_sub,
       category_custom: detailDeal.category_custom,
-      renewal_type: detailDeal.renewal_type,
-      maturity_type: detailDeal.maturity_type,
-      maturity_custom: detailDeal.maturity_custom,
+      coverage_type: detailDeal.coverage_type,
+      coverage_detail: detailDeal.coverage_detail,
+      coverage_custom: detailDeal.coverage_custom,
     };
 
     const today = new Date().toISOString().slice(0, 10);
@@ -382,12 +389,14 @@ export default function PipelineClient({
       deal.next_contact_date &&
       new Date(deal.next_contact_date) >= new Date(Date.now() - 86400000);
 
-    const catLabel = categoryDisplay(deal);
-    const matLabel = maturityDisplay(deal);
-    const renewalLabel =
-      deal.renewal_type && deal.renewal_type !== 'na'
-        ? RENEWAL_LABEL[deal.renewal_type]
-        : '';
+    const subCat = subCategoryDisplay(deal);
+    const lineLabel = deal.insurance_line || '';
+    const catLabel = lineLabel && subCat ? `${lineLabel} · ${subCat}` : subCat || lineLabel;
+    const covDetail = coverageDetailDisplay(deal);
+    const covLabel =
+      deal.coverage_type && covDetail
+        ? `${deal.coverage_type} · ${covDetail}`
+        : deal.coverage_type || covDetail;
 
     return (
       <div
@@ -447,9 +456,9 @@ export default function PipelineClient({
               <CreditCard className="w-3 h-3 mr-1" /> 월 {formatCurrency(deal.monthly_premium)}원
             </span>
           )}
-          {(renewalLabel || matLabel) && (
+          {covLabel && (
             <span className="inline-flex items-center text-[11px] bg-orange-50 text-orange-700 px-2 py-1 rounded-md font-medium">
-              {[renewalLabel, matLabel].filter(Boolean).join(' · ')}
+              {covLabel}
             </span>
           )}
           {deal.phone && (
@@ -877,63 +886,116 @@ export default function PipelineClient({
                 </div>
               </div>
 
-              {/* 영업 핵심 5필드 */}
+              {/* 상품 정보 — 대카/소카/월납/보장형/세부 */}
               <div className="bg-blue-50/40 rounded-2xl p-4 border border-blue-100 space-y-4">
                 <h4 className="text-sm font-bold text-[#3182F6] flex items-center">
                   <FileText className="w-4 h-4 mr-1.5" /> 상품 정보
                 </h4>
 
-                {/* 카테고리 + 기타 직접입력 */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
-                      카테고리
-                    </label>
-                    <select
-                      value={detailDeal.category}
-                      onChange={(e) =>
-                        setDetailDeal({
-                          ...detailDeal,
-                          category: e.target.value,
-                          // 'other' 가 아니면 custom 텍스트 비움
-                          category_custom:
-                            e.target.value === 'other' ? detailDeal.category_custom : '',
-                        })
-                      }
-                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
-                      disabled={!canManageDeal(detailDeal)}
-                    >
-                      <option value="">선택</option>
-                      {CATEGORY_OPTIONS.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
+                {/* 1) 대카테고리 — 손보 / 생보 탭 라디오 */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                    대카테고리
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {INSURANCE_LINES.map((l) => {
+                      const active = detailDeal.insurance_line === l.value;
+                      return (
+                        <button
+                          key={l.value}
+                          type="button"
+                          disabled={!canManageDeal(detailDeal)}
+                          onClick={() => {
+                            // 라인 변경 시 소카 리셋 + 종신형(생보 전용) 가드
+                            const nextCovType =
+                              l.value !== '생보' && detailDeal.coverage_type === '종신형'
+                                ? ''
+                                : detailDeal.coverage_type;
+                            setDetailDeal({
+                              ...detailDeal,
+                              insurance_line: l.value,
+                              category_sub: '',
+                              category_custom: '',
+                              coverage_type: nextCovType,
+                              coverage_detail:
+                                nextCovType === detailDeal.coverage_type
+                                  ? detailDeal.coverage_detail
+                                  : '',
+                              coverage_custom:
+                                nextCovType === detailDeal.coverage_type
+                                  ? detailDeal.coverage_custom
+                                  : '',
+                            });
+                          }}
+                          className={`px-3 py-2.5 rounded-xl text-sm font-bold transition-colors border ${
+                            active
+                              ? 'bg-[#3182F6] text-white border-[#3182F6]'
+                              : 'bg-white text-[#4E5968] border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          {l.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  {detailDeal.category === 'other' && (
+                </div>
+
+                {/* 2) 소카테고리 (대카 선택 후 활성화) + 기타 직접입력 */}
+                {detailDeal.insurance_line && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
-                        카테고리 직접입력
+                        소카테고리
                       </label>
-                      <input
-                        type="text"
-                        placeholder="예: 변액유니버셜"
-                        value={detailDeal.category_custom}
+                      <select
+                        value={detailDeal.category_sub}
                         onChange={(e) =>
                           setDetailDeal({
                             ...detailDeal,
-                            category_custom: e.target.value,
+                            category_sub: e.target.value,
+                            category_custom:
+                              e.target.value === 'other'
+                                ? detailDeal.category_custom
+                                : '',
                           })
                         }
-                        className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
-                        readOnly={!canManageDeal(detailDeal)}
-                      />
+                        className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                        disabled={!canManageDeal(detailDeal)}
+                      >
+                        <option value="">선택</option>
+                        {(SUB_CATEGORIES_BY_LINE[detailDeal.insurance_line] ?? []).map(
+                          (c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.label}
+                            </option>
+                          )
+                        )}
+                      </select>
                     </div>
-                  )}
-                </div>
+                    {detailDeal.category_sub === 'other' && (
+                      <div>
+                        <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                          소카테고리 직접입력
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="예: 변액유니버셜"
+                          value={detailDeal.category_custom}
+                          onChange={(e) =>
+                            setDetailDeal({
+                              ...detailDeal,
+                              category_custom: e.target.value,
+                            })
+                          }
+                          className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                          readOnly={!canManageDeal(detailDeal)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                {/* 월납입 예정액 (KPI 합산 기준) */}
+                {/* 3) 월납입 예정액 (KPI 합산 기준) */}
                 <div>
                   <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
                     월납입 예정액 (원) <span className="text-[#3182F6]">*KPI</span>
@@ -953,79 +1015,99 @@ export default function PipelineClient({
                   />
                 </div>
 
-                {/* 갱신 여부 + 만기 구분 (+ 만기 기타 직접입력) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
-                      갱신 여부
-                    </label>
-                    <select
-                      value={detailDeal.renewal_type}
-                      onChange={(e) =>
-                        setDetailDeal({
-                          ...detailDeal,
-                          renewal_type: e.target.value,
-                        })
-                      }
-                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
-                      disabled={!canManageDeal(detailDeal)}
-                    >
-                      <option value="">선택</option>
-                      {RENEWAL_OPTIONS.map((r) => (
-                        <option key={r.value} value={r.value}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
+                {/* 4) 보장 형태 — 갱신/비갱신/종신 라디오 (종신형은 생보만) */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                    보장 형태
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {COVERAGE_TYPES.map((t) => {
+                      const active = detailDeal.coverage_type === t.value;
+                      const lifeOnlyBlocked =
+                        t.lifeOnly && detailDeal.insurance_line !== '생보';
+                      return (
+                        <button
+                          key={t.value}
+                          type="button"
+                          disabled={!canManageDeal(detailDeal) || lifeOnlyBlocked}
+                          onClick={() =>
+                            setDetailDeal({
+                              ...detailDeal,
+                              coverage_type: t.value,
+                              coverage_detail: '',
+                              coverage_custom: '',
+                            })
+                          }
+                          title={lifeOnlyBlocked ? '생보 선택 시에만 가능' : ''}
+                          className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-colors border ${
+                            active
+                              ? 'bg-[#3182F6] text-white border-[#3182F6]'
+                              : lifeOnlyBlocked
+                              ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                              : 'bg-white text-[#4E5968] border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
-                      만기 구분
-                    </label>
-                    <select
-                      value={detailDeal.maturity_type}
-                      onChange={(e) =>
-                        setDetailDeal({
-                          ...detailDeal,
-                          maturity_type: e.target.value,
-                          maturity_custom:
-                            e.target.value === 'other'
-                              ? detailDeal.maturity_custom
-                              : '',
-                        })
-                      }
-                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
-                      disabled={!canManageDeal(detailDeal)}
-                    >
-                      <option value="">선택</option>
-                      {MATURITY_OPTIONS.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {detailDeal.maturity_type === 'other' && (
-                    <div className="sm:col-span-2">
+                </div>
+
+                {/* 5) 보장 세부 옵션 (보장 형태 선택 후 활성화) + 기타 직접입력 */}
+                {detailDeal.coverage_type && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
                       <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
-                        만기 직접입력
+                        세부 옵션
                       </label>
-                      <input
-                        type="text"
-                        placeholder="예: 80세 만기"
-                        value={detailDeal.maturity_custom}
+                      <select
+                        value={detailDeal.coverage_detail}
                         onChange={(e) =>
                           setDetailDeal({
                             ...detailDeal,
-                            maturity_custom: e.target.value,
+                            coverage_detail: e.target.value,
+                            coverage_custom:
+                              e.target.value === 'other'
+                                ? detailDeal.coverage_custom
+                                : '',
                           })
                         }
-                        className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
-                        readOnly={!canManageDeal(detailDeal)}
-                      />
+                        className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none cursor-pointer"
+                        disabled={!canManageDeal(detailDeal)}
+                      >
+                        <option value="">선택</option>
+                        {(COVERAGE_DETAILS_BY_TYPE[detailDeal.coverage_type] ?? []).map(
+                          (o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          )
+                        )}
+                      </select>
                     </div>
-                  )}
-                </div>
+                    {detailDeal.coverage_detail === 'other' && (
+                      <div>
+                        <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                          세부 옵션 직접입력
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="예: 25년납/95세 만기"
+                          value={detailDeal.coverage_custom}
+                          onChange={(e) =>
+                            setDetailDeal({
+                              ...detailDeal,
+                              coverage_custom: e.target.value,
+                            })
+                          }
+                          className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                          readOnly={!canManageDeal(detailDeal)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

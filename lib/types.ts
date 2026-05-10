@@ -61,9 +61,16 @@ export interface Deal {
   next_contact_date: string | null;
   notes: string;
   referrer: string;
-  // 영업 핵심 5필드 (004)
+  // 카테고리 (006: 대/소 분리)
+  insurance_line: string;       // '손보' | '생보'
+  category_sub: string;         // 소카테고리 값
+  category_custom: string;      // 소카 "기타" 직접입력
+  // 보장 형태
+  coverage_type: string;        // '갱신형' | '비갱신형' | '종신형'
+  coverage_detail: string;      // 세부 옵션 (10년갱신, 20/100, 5년납 등)
+  coverage_custom: string;      // 보장 형태 "기타" 직접입력
+  // legacy (DB 호환 — 더 이상 사용 안 함)
   category: string;
-  category_custom: string;
   annual_premium: number;
   renewal_type: string;
   maturity_type: string;
@@ -78,62 +85,90 @@ export interface Deal {
   interest_keywords: string;
 }
 
-// "기타" 선택 시 텍스트 직접 입력 → category_custom / maturity_custom 활용
-export const CATEGORY_OPTIONS: { value: string; label: string }[] = [
-  { value: '종신', label: '종신' },
-  { value: '건강(실손)', label: '건강 (실손)' },
-  { value: '건강(암)', label: '건강 (암)' },
-  { value: '연금', label: '연금' },
-  { value: '저축', label: '저축' },
-  { value: '자동차', label: '자동차' },
-  { value: 'other', label: '기타 (직접입력)' },
+// ---------- 카테고리 (대/소) ----------
+export const INSURANCE_LINES: { value: string; label: string }[] = [
+  { value: '손보', label: '손해보험' },
+  { value: '생보', label: '생명보험' },
 ];
 
-export const RENEWAL_OPTIONS: { value: string; label: string }[] = [
-  { value: 'renewable', label: '갱신형' },
-  { value: 'non_renewable', label: '비갱신형' },
-  { value: 'na', label: '해당없음' },
-];
-
-export const MATURITY_OPTIONS: { value: string; label: string }[] = [
-  { value: '5y', label: '5년' },
-  { value: '10y', label: '10년' },
-  { value: '15y', label: '15년' },
-  { value: '20y', label: '20년' },
-  { value: '30y', label: '30년' },
-  { value: 'whole_life', label: '종신' },
-  { value: 'age_100', label: '100세 만기' },
-  { value: 'other', label: '기타 (직접입력)' },
-];
-
-export const RENEWAL_LABEL: Record<string, string> = {
-  renewable: '갱신형',
-  non_renewable: '비갱신형',
-  na: '해당없음',
+export const SUB_CATEGORIES_BY_LINE: Record<
+  string,
+  { value: string; label: string }[]
+> = {
+  '손보': [
+    { value: '자동차', label: '자동차' },
+    { value: '운전자', label: '운전자' },
+    { value: '어린이·태아', label: '어린이·태아' },
+    { value: '실손의료', label: '실손의료' },
+    { value: '화재', label: '화재' },
+    { value: '여행자', label: '여행자' },
+    { value: '펫', label: '펫' },
+    { value: '배상책임', label: '배상책임' },
+    { value: 'other', label: '기타 (직접입력)' },
+  ],
+  '생보': [
+    { value: '종신', label: '종신' },
+    { value: '정기', label: '정기' },
+    { value: '건강(암/CI/뇌/심)', label: '건강 (암/CI/뇌/심)' },
+    { value: '어린이종합', label: '어린이종합' },
+    { value: '연금', label: '연금' },
+    { value: '저축·변액', label: '저축·변액' },
+    { value: 'other', label: '기타 (직접입력)' },
+  ],
 };
 
-export const MATURITY_LABEL: Record<string, string> = {
-  '5y': '5년',
-  '10y': '10년',
-  '15y': '15년',
-  '20y': '20년',
-  '30y': '30년',
-  whole_life: '종신',
-  age_100: '100세 만기',
+// ---------- 보장 형태 (갱신/비갱신/종신) ----------
+export const COVERAGE_TYPES: { value: string; label: string; lifeOnly?: boolean }[] = [
+  { value: '갱신형', label: '갱신형' },
+  { value: '비갱신형', label: '비갱신형' },
+  { value: '종신형', label: '종신형 (생보 전용)', lifeOnly: true },
+];
+
+export const COVERAGE_DETAILS_BY_TYPE: Record<
+  string,
+  { value: string; label: string }[]
+> = {
+  '갱신형': [
+    { value: '10년갱신', label: '10년 갱신' },
+    { value: '20년갱신', label: '20년 갱신' },
+    { value: '30년갱신', label: '30년 갱신' },
+    { value: 'other', label: '기타 (직접입력)' },
+  ],
+  '비갱신형': [
+    { value: '20/100', label: '20년납 / 100세 만기' },
+    { value: '20/90', label: '20년납 / 90세 만기' },
+    { value: '20/80', label: '20년납 / 80세 만기' },
+    { value: '30/100', label: '30년납 / 100세 만기' },
+    { value: '30/90', label: '30년납 / 90세 만기' },
+    { value: '30/80', label: '30년납 / 80세 만기' },
+    { value: 'other', label: '기타 (직접입력)' },
+  ],
+  '종신형': [
+    { value: '5년납', label: '5년납' },
+    { value: '7년납', label: '7년납' },
+    { value: '10년납', label: '10년납' },
+    { value: '15년납', label: '15년납' },
+    { value: '20년납', label: '20년납' },
+    { value: 'other', label: '기타 (직접입력)' },
+  ],
 };
 
-// 카드/배지에서 카테고리 표시명 (other → custom 텍스트)
-export function categoryDisplay(d: Pick<Deal, 'category' | 'category_custom'>): string {
-  if (!d.category) return '';
-  if (d.category === 'other') return d.category_custom || '기타';
-  return d.category;
+// ---------- 카드/배지 표시 헬퍼 ----------
+export function subCategoryDisplay(
+  d: Pick<Deal, 'insurance_line' | 'category_sub' | 'category_custom'>
+): string {
+  if (!d.category_sub) return '';
+  if (d.category_sub === 'other') return d.category_custom || '기타';
+  return d.category_sub;
 }
 
-// 카드/배지에서 만기 표시명 (other → custom 텍스트)
-export function maturityDisplay(d: Pick<Deal, 'maturity_type' | 'maturity_custom'>): string {
-  if (!d.maturity_type) return '';
-  if (d.maturity_type === 'other') return d.maturity_custom || '기타';
-  return MATURITY_LABEL[d.maturity_type] ?? d.maturity_type;
+export function coverageDetailDisplay(
+  d: Pick<Deal, 'coverage_type' | 'coverage_detail' | 'coverage_custom'>
+): string {
+  if (!d.coverage_detail) return '';
+  if (d.coverage_detail === 'other') return d.coverage_custom || '기타';
+  const opts = COVERAGE_DETAILS_BY_TYPE[d.coverage_type] ?? [];
+  return opts.find((o) => o.value === d.coverage_detail)?.label ?? d.coverage_detail;
 }
 
 export type ActivityType =

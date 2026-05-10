@@ -75,12 +75,14 @@ export async function updateDealDetail(
     next_contact_date?: string | null;
     notes?: string;
     referrer?: string;
-    // 영업 핵심 필드
-    category?: string;
+    // 카테고리 (대/소)
+    insurance_line?: string;
+    category_sub?: string;
     category_custom?: string;
-    renewal_type?: string;
-    maturity_type?: string;
-    maturity_custom?: string;
+    // 보장 형태
+    coverage_type?: string;
+    coverage_detail?: string;
+    coverage_custom?: string;
   }
 ) {
   const { supabase } = await requireAuth();
