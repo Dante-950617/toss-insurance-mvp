@@ -1,14 +1,47 @@
 export type UserRole = 'MANAGER' | 'REP';
 export type UserStatus = 'PENDING' | 'ACTIVE' | 'INACTIVE';
-export type DealStage = '진행대기' | '상담중' | '클로징(승인대기)' | '계약완료' | '실패';
+
+// 7단계 영업 파이프라인 (007 마이그레이션)
+export type DealStage =
+  | '진행대기'
+  | '콜미팅'
+  | '대면미팅'
+  | '보고서 컨펌 요청'
+  | '보고서 전달'
+  | '클로징'
+  | '후속조치(대면)';
 
 export const STAGES: DealStage[] = [
   '진행대기',
-  '상담중',
-  '클로징(승인대기)',
-  '계약완료',
-  '실패',
+  '콜미팅',
+  '대면미팅',
+  '보고서 컨펌 요청',
+  '보고서 전달',
+  '클로징',
+  '후속조치(대면)',
 ];
+
+// REP 가 직접 진입할 수 없는 단계 (매니저 승인 필요)
+export const MANAGER_ONLY_STAGES: DealStage[] = [
+  '보고서 전달',
+  '클로징',
+  '후속조치(대면)',
+];
+
+// WIN 처리 허용 단계 — 후속조치(대면) 끝난 딜만
+export const WIN_ALLOWED_STAGE: DealStage = '후속조치(대면)';
+
+// 매니저 승인 게이트 — 이 단계에서 매니저가 승인하면 다음 단계로
+export const APPROVAL_STAGE: DealStage = '보고서 컨펌 요청';
+
+// ---------- 결과 (WIN / LOSE / 진행중) ----------
+export type DealOutcome = 'PENDING' | 'WIN' | 'LOSE';
+
+export const OUTCOME_LABEL: Record<DealOutcome, string> = {
+  PENDING: '진행중',
+  WIN: '계약 성공',
+  LOSE: '계약 실패',
+};
 
 export interface Profile {
   id: string;
@@ -48,6 +81,7 @@ export interface Deal {
   member_id: string;
   customer_name: string;
   stage: DealStage;
+  outcome: DealOutcome;
   reason: string;
   product_type: string;
   monthly_premium: number;

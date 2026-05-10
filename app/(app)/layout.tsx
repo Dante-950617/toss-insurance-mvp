@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getCurrentProfile } from '@/lib/auth';
 import NavBar from '@/components/NavBar';
 import { ToastProvider } from '@/components/Toast';
+import { APPROVAL_STAGE } from '@/lib/types';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
@@ -17,7 +18,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       supabase
         .from('deals')
         .select('*', { count: 'exact', head: true })
-        .eq('stage', '클로징(승인대기)'),
+        .eq('stage', APPROVAL_STAGE)
+        .eq('outcome', 'PENDING'),
       supabase
         .from('profiles')
         .select('*', { count: 'exact', head: true })

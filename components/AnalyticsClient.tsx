@@ -1,9 +1,15 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { BarChart2, XCircle, Activity, Download } from 'lucide-react';
-import type { Profile, Deal, DealActivity, ActivityType } from '@/lib/types';
-import { ACTIVITY_LABELS } from '@/lib/types';
+import { BarChart2, XCircle, Activity, Download, Filter } from 'lucide-react';
+import type {
+  Profile,
+  Deal,
+  DealActivity,
+  ActivityType,
+  DealStage,
+} from '@/lib/types';
+import { ACTIVITY_LABELS, STAGES } from '@/lib/types';
 import { formatCurrency, downloadCSV } from '@/lib/utils';
 
 type Period = 'THIS_MONTH' | 'LAST_30D' | 'ALL';
@@ -36,8 +42,8 @@ export default function AnalyticsClient({
   const filteredDeals = useMemo(() => {
     return deals.filter((d) => {
       if (memberFilter !== 'ALL' && d.member_id !== memberFilter) return false;
-      // last_updated 기준
-      return d.last_updated >= periodStartStr;
+      // 진행대기 진입 시점 = date (등록일) 기준으로 퍼널 분석 (잔존율의 분모)
+      return d.date >= periodStartStr;
     });
   }, [deals, memberFilter, periodStartStr]);
 
@@ -48,16 +54,40 @@ export default function AnalyticsClient({
     });
   }, [activities, memberFilter, periodStartStr]);
 
-  // Drop reason 집계
+  // -------- 퍼널 잔존율 --------
+  // 각 딜의 현재 stage 인덱스 = 도달한 최고 단계 (LOSE 처리되어도 stage 보존됨)
+  const stageIndex = (s: DealStage) => STAGES.indexOf(s);
+  const totalEntered = filteredDeals.length; // 진행대기 진입 (= 분모)
+
+  const funnelRows = useMemo(() => {
+    return STAGES.map((s, i) => {
+      const reached = filteredDeals.filter((d) => stageIndex(d.stage) >= i).length;
+      const lostHere = filteredDeals.filter(
+        (d) => (d.outcome ?? 'PENDING') === 'LOSE' && d.stage === s
+      ).length;
+      const stillHere = filteredDeals.filter(
+        (d) => d.stage === s && (d.outcome ?? 'PENDING') === 'PENDING'
+      ).length;
+      const wonHere = filteredDeals.filter(
+        (d) => d.stage === s && (d.outcome ?? 'PENDING') === 'WIN'
+      ).length;
+      const pct = totalEntered > 0 ? (reached / totalEntered) * 100 : 0;
+      return { stage: s, reached, lostHere, stillHere, wonHere, pct };
+    });
+  }, [filteredDeals, totalEntered]);
+
+  // -------- Drop 사유 (LOSE) --------
   const dropReasonCounts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const d of filteredDeals.filter((x) => x.stage === '실패' && x.reason)) {
+    for (const d of filteredDeals.filter(
+      (x) => (x.outcome ?? 'PENDING') === 'LOSE' && x.reason
+    )) {
       map.set(d.reason, (map.get(d.reason) ?? 0) + 1);
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [filteredDeals]);
 
-  // 활동 타입별 집계
+  // -------- 활동 타입별 집계 --------
   const activityCounts = useMemo(() => {
     const map = new Map<ActivityType, number>();
     for (const a of filteredActivities) {
@@ -66,14 +96,12 @@ export default function AnalyticsClient({
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [filteredActivities]);
 
-  const totalDealsCount = filteredDeals.length;
-  const closedDeals = filteredDeals.filter((d) => d.stage === '계약완료');
-  const failedDeals = filteredDeals.filter((d) => d.stage === '실패');
-  const totalRevenue = closedDeals.reduce((s, d) => s + (d.deal_value || 0), 0);
+  // -------- 요약 --------
+  const wonDeals = filteredDeals.filter((d) => (d.outcome ?? 'PENDING') === 'WIN');
+  const lostDeals = filteredDeals.filter((d) => (d.outcome ?? 'PENDING') === 'LOSE');
+  const totalRevenue = wonDeals.reduce((s, d) => s + (d.monthly_premium || 0), 0);
   const conversionRate =
-    totalDealsCount > 0
-      ? ((closedDeals.length / totalDealsCount) * 100).toFixed(1)
-      : '0';
+    totalEntered > 0 ? ((wonDeals.length / totalEntered) * 100).toFixed(1) : '0';
 
   const maxDropCount = dropReasonCounts[0]?.[1] ?? 1;
   const maxActivityCount = activityCounts[0]?.[1] ?? 1;
@@ -85,12 +113,11 @@ export default function AnalyticsClient({
         '담당자',
         '고객명',
         '단계',
-        '계약가',
+        '결과',
         '월납',
-        '상품',
         '전화',
         '다음컨택',
-        '실패사유',
+        'LOSE사유',
         '등록일',
         '최종갱신',
       ],
@@ -100,9 +127,8 @@ export default function AnalyticsClient({
         memberMap.get(d.member_id) ?? '',
         d.customer_name,
         d.stage,
-        d.deal_value || 0,
+        d.outcome ?? 'PENDING',
         d.monthly_premium || 0,
-        d.product_type || '',
         d.phone || '',
         d.next_contact_date || '',
         d.reason || '',
@@ -112,6 +138,30 @@ export default function AnalyticsClient({
     }
     const dateTag = new Date().toISOString().slice(0, 10);
     downloadCSV(`deals_${dateTag}.csv`, rows);
+  };
+
+  const exportFunnel = () => {
+    const rows: (string | number | null | undefined)[][] = [
+      ['단계', '도달', '도달률(%)', '체류중', 'LOSE', 'WIN'],
+    ];
+    for (const r of funnelRows) {
+      rows.push([
+        r.stage,
+        r.reached,
+        r.pct.toFixed(1),
+        r.stillHere,
+        r.lostHere,
+        r.wonHere,
+      ]);
+    }
+    const memberLabel =
+      memberFilter === 'ALL'
+        ? 'team'
+        : (members.find((m) => m.id === memberFilter)?.name ?? 'member');
+    downloadCSV(
+      `funnel_${memberLabel}_${new Date().toISOString().slice(0, 10)}.csv`,
+      rows
+    );
   };
 
   const exportActivities = () => {
@@ -141,7 +191,7 @@ export default function AnalyticsClient({
             영업 분석
           </h1>
           <p className="text-[#4E5968] mt-1 text-xs md:text-sm font-medium">
-            드롭 사유 / 활동 패턴 / 매출 — 코칭과 전략 데이터.
+            퍼널 잔존율 / LOSE 사유 / 활동 패턴 — 담당자별·팀별 코칭 데이터.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -170,6 +220,13 @@ export default function AnalyticsClient({
           </select>
           <button
             type="button"
+            onClick={exportFunnel}
+            className="bg-white border border-gray-200 hover:bg-gray-50 rounded-xl px-3 py-2 text-xs font-bold flex items-center transition-colors"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" /> 퍼널 CSV
+          </button>
+          <button
+            type="button"
             onClick={exportDeals}
             className="bg-white border border-gray-200 hover:bg-gray-50 rounded-xl px-3 py-2 text-xs font-bold flex items-center transition-colors"
           >
@@ -187,53 +244,81 @@ export default function AnalyticsClient({
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <SummaryCard
-          label="총 딜"
-          value={`${totalDealsCount}건`}
+          label="진입 (분모)"
+          value={`${totalEntered}건`}
+          sub="기간 내 등록된 딜"
           color="text-[#3182F6]"
         />
         <SummaryCard
-          label="계약 완료"
-          value={`${closedDeals.length}건`}
-          sub={`${formatCurrency(totalRevenue)}원`}
+          label="WIN"
+          value={`${wonDeals.length}건`}
+          sub={`월납 합 ${formatCurrency(totalRevenue)}원`}
           color="text-green-600"
         />
         <SummaryCard
-          label="실패"
-          value={`${failedDeals.length}건`}
+          label="LOSE"
+          value={`${lostDeals.length}건`}
           color="text-red-500"
         />
         <SummaryCard
-          label="전환율"
+          label="WIN 전환율"
           value={`${conversionRate}%`}
           color="text-purple-600"
         />
       </div>
 
+      {/* 퍼널 잔존율 */}
       <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
-        <h2 className="text-lg font-bold text-[#191F28] mb-5 flex items-center">
-          <XCircle className="w-5 h-5 mr-2 text-red-500" />
-          드롭 사유 TOP
+        <h2 className="text-lg font-bold text-[#191F28] mb-1 flex items-center">
+          <Filter className="w-5 h-5 mr-2 text-[#3182F6]" />
+          퍼널 잔존율
         </h2>
-        {dropReasonCounts.length === 0 ? (
+        <p className="text-xs text-[#8B95A1] font-medium mb-5">
+          {memberFilter === 'ALL'
+            ? '팀 전체'
+            : members.find((m) => m.id === memberFilter)?.name ?? ''}{' '}
+          · 분모 = 기간 내 등록된 딜 ({totalEntered}건)
+        </p>
+        {totalEntered === 0 ? (
           <p className="text-sm text-[#8B95A1] text-center py-8 bg-gray-50 rounded-xl">
-            해당 기간에 실패 사유가 없습니다.
+            해당 기간에 등록된 딜이 없습니다.
           </p>
         ) : (
           <div className="space-y-3">
-            {dropReasonCounts.map(([reason, count]) => (
-              <div key={reason}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm font-bold text-[#191F28] truncate pr-2">
-                    {reason}
+            {funnelRows.map((r) => (
+              <div key={r.stage}>
+                <div className="flex justify-between items-end mb-1">
+                  <span className="text-sm font-bold text-[#191F28]">
+                    {r.stage}
                   </span>
-                  <span className="text-xs font-extrabold text-red-600 shrink-0">
-                    {count}건
-                  </span>
+                  <div className="text-xs font-medium text-[#8B95A1] flex gap-2 items-center">
+                    {r.lostHere > 0 && (
+                      <span className="text-red-500 font-bold">
+                        ✖ {r.lostHere}
+                      </span>
+                    )}
+                    {r.wonHere > 0 && (
+                      <span className="text-green-600 font-bold">
+                        🏆 {r.wonHere}
+                      </span>
+                    )}
+                    {r.stillHere > 0 && (
+                      <span className="text-[#3182F6]">
+                        체류 {r.stillHere}
+                      </span>
+                    )}
+                    <span className="font-extrabold text-[#191F28]">
+                      {r.reached}건
+                    </span>
+                    <span className="font-extrabold text-[#3182F6] w-12 text-right">
+                      {r.pct.toFixed(1)}%
+                    </span>
+                  </div>
                 </div>
-                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-red-400 rounded-full"
-                    style={{ width: `${(count / maxDropCount) * 100}%` }}
+                    className="h-full bg-gradient-to-r from-[#3182F6] to-blue-400 rounded-full"
+                    style={{ width: `${r.pct}%` }}
                   />
                 </div>
               </div>
@@ -242,37 +327,73 @@ export default function AnalyticsClient({
         )}
       </div>
 
-      <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
-        <h2 className="text-lg font-bold text-[#191F28] mb-5 flex items-center">
-          <Activity className="w-5 h-5 mr-2 text-[#3182F6]" />
-          활동 분포
-        </h2>
-        {activityCounts.length === 0 ? (
-          <p className="text-sm text-[#8B95A1] text-center py-8 bg-gray-50 rounded-xl">
-            해당 기간에 활동 기록이 없습니다.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {activityCounts.map(([type, count]) => (
-              <div key={type}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm font-bold text-[#191F28]">
-                    {ACTIVITY_LABELS[type] ?? type}
-                  </span>
-                  <span className="text-xs font-extrabold text-[#3182F6] shrink-0">
-                    {count}건
-                  </span>
+      {/* LOSE 사유 + 활동 분포 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
+          <h2 className="text-lg font-bold text-[#191F28] mb-5 flex items-center">
+            <XCircle className="w-5 h-5 mr-2 text-red-500" />
+            LOSE 사유 TOP
+          </h2>
+          {dropReasonCounts.length === 0 ? (
+            <p className="text-sm text-[#8B95A1] text-center py-8 bg-gray-50 rounded-xl">
+              해당 기간에 LOSE 사유가 없습니다.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {dropReasonCounts.map(([reason, count]) => (
+                <div key={reason}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm font-bold text-[#191F28] truncate pr-2">
+                      {reason}
+                    </span>
+                    <span className="text-xs font-extrabold text-red-600 shrink-0">
+                      {count}건
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-red-400 rounded-full"
+                      style={{ width: `${(count / maxDropCount) * 100}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#3182F6] rounded-full"
-                    style={{ width: `${(count / maxActivityCount) * 100}%` }}
-                  />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
+          <h2 className="text-lg font-bold text-[#191F28] mb-5 flex items-center">
+            <Activity className="w-5 h-5 mr-2 text-[#3182F6]" />
+            활동 분포
+          </h2>
+          {activityCounts.length === 0 ? (
+            <p className="text-sm text-[#8B95A1] text-center py-8 bg-gray-50 rounded-xl">
+              해당 기간에 활동 기록이 없습니다.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {activityCounts.map(([type, count]) => (
+                <div key={type}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm font-bold text-[#191F28]">
+                      {ACTIVITY_LABELS[type] ?? type}
+                    </span>
+                    <span className="text-xs font-extrabold text-[#3182F6] shrink-0">
+                      {count}건
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#3182F6] rounded-full"
+                      style={{ width: `${(count / maxActivityCount) * 100}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

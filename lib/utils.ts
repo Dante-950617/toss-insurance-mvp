@@ -83,9 +83,11 @@ export const buildTeamAggregate = (
   };
 };
 
+// 결과(WIN/LOSE)나 후속조치 단계가 아닌 진행중 딜만 stale 검사
 export const isStaleDeal = (deal: Deal): boolean => {
-  const stuckStages: Deal['stage'][] = ['진행대기', '상담중', '클로징(승인대기)'];
-  return stuckStages.includes(deal.stage) && getDwellDays(deal.last_updated) >= 5;
+  if (deal.outcome && deal.outcome !== 'PENDING') return false;
+  if (deal.stage === '후속조치(대면)') return false;
+  return getDwellDays(deal.last_updated) >= 5;
 };
 
 export function downloadCSV(filename: string, rows: (string | number | null | undefined)[][]) {

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import type { DealStage, UserStatus, ActivityType } from './types';
+import type { DealStage, DealOutcome, UserStatus, ActivityType } from './types';
 
 async function requireAuth() {
   const supabase = await createClient();
@@ -62,6 +62,28 @@ export async function updateDealStage(dealId: string, newStage: DealStage, reaso
   return { success: true };
 }
 
+// 결과(WIN/LOSE/PENDING) 설정 — 단계와 분리
+// WIN: stage='후속조치(대면)' 일 때만 가능 (트리거에서 강제)
+// LOSE: 어느 단계에서든 가능 (현재 stage 보존하여 단계별 퍼널 분석)
+// 되돌리기: PENDING 으로 복귀
+export async function setDealOutcome(
+  dealId: string,
+  outcome: DealOutcome,
+  reason?: string
+) {
+  const { supabase } = await requireAuth();
+  const patch: { outcome: DealOutcome; reason?: string } = { outcome };
+  if (outcome === 'LOSE' && reason !== undefined) patch.reason = reason;
+  if (outcome === 'PENDING') patch.reason = '';
+  const { error } = await supabase.from('deals').update(patch).eq('id', dealId);
+  if (error) return { error: error.message };
+  revalidatePath('/pipeline');
+  revalidatePath('/dashboard');
+  revalidatePath('/analytics');
+  revalidatePath('/leaderboard');
+  return { success: true };
+}
+
 export async function updateDealDetail(
   dealId: string,
   patch: {
@@ -70,6 +92,7 @@ export async function updateDealDetail(
     competitor?: string;
     manager_comment?: string;
     stage?: DealStage;
+    outcome?: DealOutcome;
     deal_value?: number;
     phone?: string;
     next_contact_date?: string | null;

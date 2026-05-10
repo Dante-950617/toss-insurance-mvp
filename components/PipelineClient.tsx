@@ -24,6 +24,9 @@ import {
   History,
   Copy,
   MessageCircle,
+  Trophy,
+  RotateCcw,
+  ThumbsDown,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import {
@@ -32,10 +35,14 @@ import {
   updateDealDetail,
   deleteDeal,
   addActivity,
+  setDealOutcome,
 } from '@/lib/actions';
 import { formatCurrency, getDwellDays } from '@/lib/utils';
 import {
   STAGES,
+  MANAGER_ONLY_STAGES,
+  WIN_ALLOWED_STAGE,
+  APPROVAL_STAGE,
   ACTIVITY_LABELS,
   ACTIVE_ACTIVITY_TYPES,
   INSURANCE_LINES,
@@ -51,6 +58,7 @@ import type {
   DealStage,
   DealActivity,
   ActivityType,
+  DealOutcome,
 } from '@/lib/types';
 
 const FAILURE_REASONS = [
@@ -188,6 +196,7 @@ export default function PipelineClient({
       member_id: targetMemberId,
       customer_name: trimmed,
       stage: '진행대기',
+      outcome: 'PENDING',
       reason: '',
       product_type: '',
       monthly_premium: 0,
@@ -239,24 +248,20 @@ export default function PipelineClient({
   };
 
   const handleStageSelect = (deal: Deal, raw: string) => {
-    let newStage = raw as DealStage;
+    const newStage = raw as DealStage;
 
-    if (!isManager && newStage === '계약완료') {
-      showToast("클로징 처리는 관리자의 승인이 필요합니다. '승인요청' 상태로 변경합니다.");
-      newStage = '클로징(승인대기)';
-    }
-
-    if (newStage === '실패') {
-      setReasonModalDeal(deal);
+    // REP 매니저 승인 게이트
+    if (!isManager && MANAGER_ONLY_STAGES.includes(newStage)) {
+      showToast(`${newStage} 단계는 매니저 승인이 필요합니다. "${APPROVAL_STAGE}" 으로 먼저 보내세요.`);
       return;
     }
 
     const prevStage = deal.stage;
     const today = new Date().toISOString().slice(0, 10);
-    optimisticPatch(deal.id, { stage: newStage, reason: '', last_updated: today });
+    optimisticPatch(deal.id, { stage: newStage, last_updated: today });
 
     startTransition(async () => {
-      const res = await updateDealStage(deal.id, newStage, '');
+      const res = await updateDealStage(deal.id, newStage);
       if (res.error) {
         optimisticPatch(deal.id, { stage: prevStage });
         showToast(`변경 실패: ${res.error}`);
@@ -264,26 +269,62 @@ export default function PipelineClient({
     });
   };
 
+  // WIN 처리 — '후속조치(대면)' 단계에서만 가능
+  const handleSetWin = (deal: Deal) => {
+    if (deal.stage !== WIN_ALLOWED_STAGE) {
+      showToast(`WIN 처리는 "${WIN_ALLOWED_STAGE}" 단계에서만 가능합니다.`);
+      return;
+    }
+    const prevOutcome = deal.outcome;
+    optimisticPatch(deal.id, { outcome: 'WIN' });
+    startTransition(async () => {
+      const res = await setDealOutcome(deal.id, 'WIN');
+      if (res.error) {
+        optimisticPatch(deal.id, { outcome: prevOutcome });
+        showToast(`WIN 처리 실패: ${res.error}`);
+      } else {
+        showToast('🎉 WIN 처리되었습니다.');
+      }
+    });
+  };
+
+  // 결과 되돌리기 (WIN/LOSE → PENDING)
+  const handleResetOutcome = (deal: Deal) => {
+    const prevOutcome = deal.outcome;
+    const prevReason = deal.reason;
+    optimisticPatch(deal.id, { outcome: 'PENDING', reason: '' });
+    startTransition(async () => {
+      const res = await setDealOutcome(deal.id, 'PENDING');
+      if (res.error) {
+        optimisticPatch(deal.id, { outcome: prevOutcome, reason: prevReason });
+        showToast(`되돌리기 실패: ${res.error}`);
+      } else {
+        showToast('결과가 진행중으로 되돌려졌습니다.');
+      }
+    });
+  };
+
+  // LOSE 처리 — 어느 단계에서든 가능 (현재 stage 보존하여 단계별 퍼널 분석)
   const handleSaveFailure = (e: FormEvent) => {
     e.preventDefault();
     if (!reasonModalDeal || !failureReason) return;
     const id = reasonModalDeal.id;
     const today = new Date().toISOString().slice(0, 10);
-    const prevStage = reasonModalDeal.stage;
+    const prevOutcome = reasonModalDeal.outcome;
     const prevReason = reasonModalDeal.reason;
 
-    optimisticPatch(id, { stage: '실패', reason: failureReason, last_updated: today });
+    optimisticPatch(id, { outcome: 'LOSE', reason: failureReason, last_updated: today });
     setReasonModalDeal(null);
     const reason = failureReason;
     setFailureReason('');
 
     startTransition(async () => {
-      const res = await updateDealStage(id, '실패', reason);
+      const res = await setDealOutcome(id, 'LOSE', reason);
       if (res.error) {
-        optimisticPatch(id, { stage: prevStage, reason: prevReason });
+        optimisticPatch(id, { outcome: prevOutcome, reason: prevReason });
         showToast(`저장 실패: ${res.error}`);
       } else {
-        showToast('실패 사유가 저장되었습니다.');
+        showToast('LOSE 처리되었습니다.');
       }
     });
   };
@@ -383,8 +424,12 @@ export default function PipelineClient({
   const renderCard = (deal: Deal) => {
     const dwellDays = getDwellDays(deal.last_updated);
     const stage = deal.stage;
+    const outcome: DealOutcome = deal.outcome ?? 'PENDING';
+    const isPending = outcome === 'PENDING';
+    const isWin = outcome === 'WIN';
+    const isLose = outcome === 'LOSE';
     const isStale =
-      dwellDays >= 5 && ['진행대기', '상담중', '클로징(승인대기)'].includes(stage);
+      isPending && stage !== '후속조치(대면)' && dwellDays >= 5;
     const upcomingContact =
       deal.next_contact_date &&
       new Date(deal.next_contact_date) >= new Date(Date.now() - 86400000);
@@ -402,42 +447,102 @@ export default function PipelineClient({
       <div
         key={deal.id}
         onClick={() => openDetailDeal(deal)}
-        className={`bg-white rounded-[16px] p-4 shadow-sm border ${
-          isStale ? 'border-red-300' : 'border-gray-100'
+        className={`bg-white rounded-[14px] p-3 shadow-sm border ${
+          isWin
+            ? 'border-green-300'
+            : isLose
+            ? 'border-red-200 opacity-80'
+            : isStale
+            ? 'border-red-300'
+            : 'border-gray-100'
         } hover:border-[#3182F6] hover:shadow-md transition-all group cursor-pointer`}
       >
-        <div className="flex flex-col mb-3 space-y-2">
-          <div className="flex items-start justify-between gap-2">
-            <span className="font-bold text-sm text-[#191F28] truncate">
-              {deal.customer_name}
-            </span>
+        <div className="flex flex-col mb-2 space-y-1.5">
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              {isWin && (
+                <Trophy className="w-3.5 h-3.5 text-yellow-500 shrink-0" aria-label="WIN" />
+              )}
+              {isLose && (
+                <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" aria-label="LOSE" />
+              )}
+              <span className="font-bold text-xs text-[#191F28] truncate">
+                {deal.customer_name}
+              </span>
+            </div>
             {canManageDeal(deal) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmDeleteDealId(deal.id);
-                }}
-                className="text-gray-300 hover:text-red-500 transition-colors p-1 -m-1 shrink-0"
-                aria-label="딜 삭제"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                {isPending && (
+                  <>
+                    {stage === WIN_ALLOWED_STAGE && (
+                      <button
+                        onClick={() => handleSetWin(deal)}
+                        className="text-gray-300 hover:text-green-600 hover:bg-green-50 transition-colors p-1 rounded"
+                        aria-label="WIN 처리"
+                        title="WIN 처리"
+                      >
+                        <Trophy className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setReasonModalDeal(deal)}
+                      className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors p-1 rounded"
+                      aria-label="LOSE 처리"
+                      title="LOSE 처리"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+                {!isPending && (
+                  <button
+                    onClick={() => handleResetOutcome(deal)}
+                    className="text-gray-300 hover:text-[#3182F6] hover:bg-blue-50 transition-colors p-1 rounded"
+                    aria-label="결과 되돌리기"
+                    title="진행중으로 되돌리기"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => setConfirmDeleteDealId(deal.id)}
+                  className="text-gray-300 hover:text-red-500 transition-colors p-1 rounded"
+                  aria-label="딜 삭제"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
           </div>
           <div className="relative w-full" onClick={(e) => e.stopPropagation()}>
-            {!isManager && (stage === '클로징(승인대기)' || stage === '계약완료') ? (
+            {!isPending ? (
+              <span
+                className={`text-[10px] px-2 py-1 rounded-md font-bold block w-fit ${
+                  isWin
+                    ? 'bg-green-50 text-green-700'
+                    : 'bg-red-50 text-red-600'
+                }`}
+              >
+                {isWin ? '🏆 WIN' : '✖ LOSE'} · {stage}
+              </span>
+            ) : !isManager && stage === APPROVAL_STAGE ? (
               <span className="text-[10px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold block w-fit">
-                승인 진행중
+                매니저 승인 대기
               </span>
             ) : (
               <select
-                className="w-full text-xs border border-gray-200 rounded-lg p-1.5 outline-none focus:border-[#3182F6] text-[#4E5968] bg-white cursor-pointer font-bold hover:bg-gray-50 transition-colors"
+                className="w-full text-[11px] border border-gray-200 rounded-lg p-1 outline-none focus:border-[#3182F6] text-[#4E5968] bg-white cursor-pointer font-bold hover:bg-gray-50 transition-colors"
                 value={deal.stage}
                 onChange={(e) => handleStageSelect(deal, e.target.value)}
               >
                 {STAGES.map((s) => (
-                  <option key={s} value={s}>
+                  <option
+                    key={s}
+                    value={s}
+                    disabled={!isManager && MANAGER_ONLY_STAGES.includes(s)}
+                  >
                     {s}
+                    {!isManager && MANAGER_ONLY_STAGES.includes(s) ? ' 🔒' : ''}
                   </option>
                 ))}
               </select>
@@ -513,38 +618,38 @@ export default function PipelineClient({
           );
         })()}
 
-        <div className="flex flex-col mt-2 border-t border-gray-50 pt-2 space-y-1.5">
+        <div className="flex flex-col mt-1.5 border-t border-gray-50 pt-1.5 space-y-1">
           <div className="text-[10px] text-gray-400 font-medium">등록: {deal.date}</div>
-          {['진행대기', '상담중', '클로징(승인대기)'].includes(stage) && (
+          {isPending && stage !== '후속조치(대면)' && (
             <div
-              className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center w-fit ${
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center w-fit ${
                 isStale ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
               }`}
             >
               {isStale ? (
                 <>
-                  <AlertCircle className="w-3 h-3 mr-1" /> {dwellDays}일째 방치됨
+                  <AlertCircle className="w-3 h-3 mr-1" /> {dwellDays}일 방치
                 </>
               ) : (
                 <>
-                  <Timer className="w-3 h-3 mr-1" /> {dwellDays}일째 체류중
+                  <Timer className="w-3 h-3 mr-1" /> {dwellDays}일 체류
                 </>
               )}
             </div>
           )}
         </div>
 
-        {deal.stage === '실패' && deal.reason && (
-          <div className="bg-red-50 text-red-600 text-[11px] font-bold p-2.5 rounded-xl break-words line-clamp-2 mt-2">
+        {isLose && deal.reason && (
+          <div className="bg-red-50 text-red-600 text-[10px] font-bold p-2 rounded-lg break-words line-clamp-2 mt-1.5">
             사유: {deal.reason}
           </div>
         )}
 
         {deal.manager_comment && (
-          <div className="mt-3 bg-blue-50/50 text-[#191F28] text-[11px] font-medium p-3 rounded-xl border border-blue-100">
-            <span className="font-bold mb-1 text-[#3182F6] flex items-center">
+          <div className="mt-1.5 bg-blue-50/50 text-[#191F28] text-[10px] font-medium p-2 rounded-lg border border-blue-100 line-clamp-2">
+            <span className="font-bold text-[#3182F6] flex items-center mb-0.5">
               <ShieldCheck className="w-3 h-3 mr-1" />
-              지점장 피드백
+              지점장
             </span>
             {deal.manager_comment}
           </div>
@@ -637,9 +742,8 @@ export default function PipelineClient({
                   active ? 'bg-[#191F28] text-white' : 'bg-transparent text-[#4E5968]'
                 }`}
               >
-                {s === '계약완료' && <CheckCircle className="w-3 h-3" />}
-                {s === '클로징(승인대기)' && <ShieldCheck className="w-3 h-3" />}
-                {s === '실패' && <XCircle className="w-3 h-3" />}
+                {s === APPROVAL_STAGE && <ShieldCheck className="w-3 h-3" />}
+                {s === '후속조치(대면)' && <CheckCircle className="w-3 h-3" />}
                 {s}
                 <span
                   className={`text-[10px] font-extrabold px-1.5 rounded-md ${
@@ -665,37 +769,36 @@ export default function PipelineClient({
         </div>
       </div>
 
-      {/* Desktop: 5단계 칸반 */}
-      <div className="hidden lg:grid grid-cols-5 gap-4 pb-4 flex-1 min-h-0">
+      {/* Desktop: 7단계 칸반 (콤팩트) */}
+      <div className="hidden lg:grid grid-cols-7 gap-2 pb-3 flex-1 min-h-0">
         {STAGES.map((stage) => (
           <div
             key={stage}
-            className="bg-[#F2F4F6] rounded-[24px] p-4 flex flex-col h-full border border-gray-200/50 overflow-hidden"
+            className="bg-[#F2F4F6] rounded-[16px] p-2 flex flex-col h-full border border-gray-200/50 overflow-hidden min-w-0"
           >
-            <div className="flex justify-between items-center mb-4 px-1 shrink-0">
-              <h3 className="font-bold text-[#191F28] text-sm flex items-center">
-                {stage === '계약완료' && (
-                  <CheckCircle className="w-4 h-4 mr-1.5 text-green-500" />
+            <div className="flex justify-between items-center mb-2 px-1 shrink-0">
+              <h3 className="font-bold text-[#191F28] text-[11px] flex items-center min-w-0 truncate">
+                {stage === APPROVAL_STAGE && (
+                  <ShieldCheck className="w-3.5 h-3.5 mr-1 text-[#3182F6] shrink-0" />
                 )}
-                {stage === '클로징(승인대기)' && (
-                  <ShieldCheck className="w-4 h-4 mr-1.5 text-[#3182F6]" />
+                {stage === '후속조치(대면)' && (
+                  <CheckCircle className="w-3.5 h-3.5 mr-1 text-green-500 shrink-0" />
                 )}
-                {stage === '실패' && <XCircle className="w-4 h-4 mr-1.5 text-red-500" />}
-                {stage}
+                <span className="truncate">{stage}</span>
               </h3>
-              <span className="bg-white text-[#4E5968] text-xs font-bold px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
+              <span className="bg-white text-[#4E5968] text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm border border-gray-100 shrink-0 ml-1">
                 {filteredDeals.filter((m) => m.stage === stage).length}
               </span>
             </div>
 
-            <div className="space-y-3 flex-1 overflow-y-auto pb-2 pr-1 no-scrollbar">
+            <div className="space-y-2 flex-1 overflow-y-auto pb-1 pr-0.5 no-scrollbar">
               {filteredDeals
                 .filter((m) => m.stage === stage)
                 .map((deal) => renderCard(deal))}
 
               {filteredDeals.filter((m) => m.stage === stage).length === 0 && (
-                <div className="text-center text-[#8B95A1] text-xs py-10 border-2 border-dashed border-gray-200 rounded-[16px] font-medium mt-2">
-                  해당되는 딜이 없습니다
+                <div className="text-center text-[#8B95A1] text-[10px] py-6 border-2 border-dashed border-gray-200 rounded-[12px] font-medium mt-1">
+                  비어있음
                 </div>
               )}
             </div>
@@ -1285,20 +1388,20 @@ export default function PipelineClient({
                     }
                     className="w-full border border-blue-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-[#3182F6] outline-none resize-none font-medium"
                   />
-                  {detailDeal.stage === '클로징(승인대기)' && (
+                  {detailDeal.stage === APPROVAL_STAGE && (
                     <div className="mt-4 flex gap-3">
                       <button
                         type="button"
                         onClick={() =>
-                          setDetailDeal({ ...detailDeal, stage: '계약완료' })
+                          setDetailDeal({ ...detailDeal, stage: '보고서 전달' })
                         }
                         className="flex-1 bg-[#3182F6] text-white py-3 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
                       >
-                        계약 승인 완료
+                        승인 → 보고서 전달
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDetailDeal({ ...detailDeal, stage: '상담중' })}
+                        onClick={() => setDetailDeal({ ...detailDeal, stage: '대면미팅' })}
                         className="flex-1 bg-white text-[#4E5968] border border-gray-200 py-3 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
                       >
                         보류 (반려)
@@ -1383,7 +1486,7 @@ export default function PipelineClient({
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-[24px] p-8 w-full max-w-sm shadow-xl relative">
             <h3 className="text-xl font-bold text-[#191F28] mb-2 flex items-center">
-              <XCircle className="w-6 h-6 mr-2 text-red-500" /> 딜 실패 사유
+              <XCircle className="w-6 h-6 mr-2 text-red-500" /> LOSE 사유
             </h3>
             <p className="text-sm text-[#4E5968] mb-6 font-medium">
               정확한 원인 파악이 더 나은 성장을 만듭니다.

@@ -41,6 +41,7 @@ import {
 import { createTask, toggleTask, deleteTask, updateDealStage } from '@/lib/actions';
 import { useToast } from '@/components/Toast';
 import type { DealStage } from '@/lib/types';
+import { APPROVAL_STAGE, STAGES } from '@/lib/types';
 
 type AutoTaskType =
   | 'today_contact'
@@ -191,13 +192,14 @@ export default function DashboardClient({
     const items: AutoTask[] = [];
     const isMgr = currentUser.role === 'MANAGER';
     const myDeals = isMgr ? deals : deals.filter((d) => d.member_id === currentUser.id);
-    const closedStages = ['계약완료', '실패'];
+    // 진행중(PENDING) 인 딜만 자동 할일 생성. WIN/LOSE 결정난 딜은 제외.
+    const isOpen = (d: Deal) => (d.outcome ?? 'PENDING') === 'PENDING';
 
     // 1) 오늘 컨택 예정
     myDeals
       .filter(
         (d) =>
-          d.next_contact_date === todayStr && !closedStages.includes(d.stage)
+          d.next_contact_date === todayStr && isOpen(d)
       )
       .forEach((d) =>
         items.push({
@@ -216,7 +218,7 @@ export default function DashboardClient({
         (d) =>
           d.next_contact_date &&
           d.next_contact_date < todayStr &&
-          !closedStages.includes(d.stage)
+          isOpen(d)
       )
       .forEach((d) =>
         items.push({
@@ -244,10 +246,10 @@ export default function DashboardClient({
       });
     });
 
-    // 4) MANAGER 전용: 클로징 승인 대기
+    // 4) MANAGER 전용: 보고서 컨펌 요청 (승인 게이트)
     if (isMgr) {
       deals
-        .filter((d) => d.stage === '클로징(승인대기)')
+        .filter((d) => d.stage === APPROVAL_STAGE && (d.outcome ?? 'PENDING') === 'PENDING')
         .forEach((d) => {
           const member = members.find((m) => m.id === d.member_id);
           items.push({
@@ -255,7 +257,7 @@ export default function DashboardClient({
             type: 'pending_approval',
             dealId: d.id,
             customerName: d.customer_name,
-            sub: `${member?.name ?? ''} 승인 요청${d.deal_value ? ` · ${formatCurrency(d.deal_value)}원` : ''}`,
+            sub: `${member?.name ?? ''} 승인 요청${d.monthly_premium ? ` · 월 ${formatCurrency(d.monthly_premium)}원` : ''}`,
             priority: 0,
           });
         });
@@ -309,13 +311,11 @@ export default function DashboardClient({
   const activeMeetings = isTeamView
     ? deals
     : deals.filter((m) => m.member_id === displayMemberId);
-  const failedMeetings = activeMeetings.filter((m) => m.stage === '실패');
-  const inProgressMeetings = activeMeetings.filter((m) => m.stage === '상담중');
-  const staleMeetings = deals.filter(
-    (m) =>
-      ['진행대기', '상담중', '클로징(승인대기)'].includes(m.stage) &&
-      getDwellDays(m.last_updated) >= 5
+  const failedMeetings = activeMeetings.filter((m) => (m.outcome ?? 'PENDING') === 'LOSE');
+  const inProgressMeetings = activeMeetings.filter(
+    (m) => (m.outcome ?? 'PENDING') === 'PENDING' && (m.stage === '콜미팅' || m.stage === '대면미팅')
   );
+  const staleMeetings = deals.filter((m) => isStaleDeal(m));
 
   const today = new Date();
   const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
@@ -399,6 +399,11 @@ export default function DashboardClient({
           iconColor="text-purple-500"
         />
       </div>
+
+      <FunnelMini
+        deals={activeMeetings}
+        title={isTeamView ? '팀 퍼널 잔존율' : `${activeData.name} 퍼널 잔존율`}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-8 space-y-6">
@@ -625,17 +630,17 @@ export default function DashboardClient({
                             <button
                               type="button"
                               onClick={() =>
-                                handleQuickApproval(task.dealId, '계약완료', '승인')
+                                handleQuickApproval(task.dealId, '보고서 전달', '승인')
                               }
                               className="bg-[#3182F6] text-white text-[10px] font-extrabold px-2 py-1 rounded-md hover:bg-blue-600 transition-colors"
-                              title="승인"
+                              title="승인 → 보고서 전달"
                             >
                               ✓ 승인
                             </button>
                             <button
                               type="button"
                               onClick={() =>
-                                handleQuickApproval(task.dealId, '상담중', '반려')
+                                handleQuickApproval(task.dealId, '대면미팅', '반려')
                               }
                               className="bg-white border border-gray-200 text-[#4E5968] text-[10px] font-extrabold px-2 py-1 rounded-md hover:bg-gray-50 transition-colors"
                               title="반려"
@@ -1016,6 +1021,59 @@ function ProgressRow({
       </div>
       <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
         <div style={{ width: fillWidth }} className={`h-full ${fillColor} rounded-full`}></div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 미니 퍼널 잔존율 위젯 ----------
+function FunnelMini({ deals, title }: { deals: Deal[]; title: string }) {
+  const total = deals.length;
+  if (total === 0) return null;
+
+  const stageIdx = (s: DealStage) => STAGES.indexOf(s);
+  const rows = STAGES.map((s, i) => {
+    const reached = deals.filter((d) => stageIdx(d.stage) >= i).length;
+    const lost = deals.filter(
+      (d) => (d.outcome ?? 'PENDING') === 'LOSE' && d.stage === s
+    ).length;
+    const pct = (reached / total) * 100;
+    return { stage: s, reached, lost, pct };
+  });
+
+  return (
+    <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-sm font-bold text-[#191F28] flex items-center">
+          <BarChart2 className="w-4 h-4 mr-1.5 text-[#3182F6]" />
+          {title}
+        </h3>
+        <span className="text-[11px] text-[#8B95A1] font-bold">
+          전체 {total}건 진입
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        {rows.map((r) => (
+          <div key={r.stage} className="text-center min-w-0">
+            <div className="text-[10px] font-bold text-[#4E5968] mb-1.5 truncate">
+              {r.stage}
+            </div>
+            <div className="bg-gray-100 rounded-lg h-20 flex flex-col justify-end overflow-hidden relative">
+              <div
+                className="bg-gradient-to-t from-[#3182F6] to-blue-400"
+                style={{ height: `${r.pct}%` }}
+              />
+            </div>
+            <div className="text-[11px] font-extrabold text-[#191F28] mt-1.5">
+              {r.pct.toFixed(0)}%
+            </div>
+            <div className="text-[10px] text-[#8B95A1] font-bold">
+              {r.reached}건{r.lost > 0 && (
+                <span className="text-red-500"> · ✖{r.lost}</span>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

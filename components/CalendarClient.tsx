@@ -7,10 +7,12 @@ import type { Profile, Deal } from '@/lib/types';
 
 const STAGE_COLOR: Record<string, string> = {
   진행대기: 'bg-gray-200 text-[#191F28]',
-  상담중: 'bg-yellow-100 text-yellow-800',
-  '클로징(승인대기)': 'bg-blue-100 text-[#3182F6]',
-  계약완료: 'bg-green-100 text-green-800',
-  실패: 'bg-red-100 text-red-700',
+  콜미팅: 'bg-yellow-100 text-yellow-800',
+  대면미팅: 'bg-amber-100 text-amber-800',
+  '보고서 컨펌 요청': 'bg-blue-100 text-[#3182F6]',
+  '보고서 전달': 'bg-indigo-100 text-indigo-700',
+  클로징: 'bg-purple-100 text-purple-700',
+  '후속조치(대면)': 'bg-green-100 text-green-800',
 };
 
 export default function CalendarClient({

@@ -62,7 +62,7 @@ export default function LeaderboardClient({
       const myDeals = deals.filter((d) => d.member_id === member.id);
 
       const closed = myDeals.filter(
-        (d) => d.stage === '계약완료' && d.last_updated >= periodStartStr
+        (d) => (d.outcome ?? 'PENDING') === 'WIN' && d.last_updated >= periodStartStr
       );
 
       const callCount = myActs.filter(
