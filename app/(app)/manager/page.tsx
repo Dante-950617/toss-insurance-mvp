@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentProfile } from '@/lib/auth';
 import ManagerClient from '@/components/ManagerClient';
 import { calcMember } from '@/lib/utils';
 import type { Profile, TeamSettings, MemberInvitation } from '@/lib/types';
@@ -7,35 +8,21 @@ import type { Profile, TeamSettings, MemberInvitation } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 export default async function ManagerPage() {
+  const profileData = await getCurrentProfile();
+  if (!profileData) redirect('/login');
+  if (profileData.role !== 'MANAGER') redirect('/dashboard');
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
 
-  const { data: profileData } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single<Profile>();
-
-  if (!profileData || profileData.role !== 'MANAGER') redirect('/dashboard');
-
-  const { data: allMembers } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: true });
-
-  const { data: teamSettings } = await supabase
-    .from('team_settings')
-    .select('*')
-    .eq('id', 1)
-    .single<TeamSettings>();
-
-  const { data: invitations } = await supabase
-    .from('member_invitations')
-    .select('*')
-    .order('invited_at', { ascending: false });
+  const [
+    { data: allMembers },
+    { data: teamSettings },
+    { data: invitations },
+  ] = await Promise.all([
+    supabase.from('profiles').select('*').order('created_at', { ascending: true }),
+    supabase.from('team_settings').select('*').eq('id', 1).single<TeamSettings>(),
+    supabase.from('member_invitations').select('*').order('invited_at', { ascending: false }),
+  ]);
 
   const members = ((allMembers ?? []) as Profile[]).map(calcMember);
 

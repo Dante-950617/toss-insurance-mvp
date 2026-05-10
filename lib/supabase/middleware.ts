@@ -45,30 +45,25 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 로그인된 사용자의 status 체크 (PENDING/INACTIVE는 /pending으로 강제 이동)
-  if (user && !isAuthRoute && !isPendingRoute) {
+  // 로그인 사용자의 status 한 번만 조회 후 두 분기에서 재사용
+  if (user && !isAuthRoute) {
     const { data: profile } = await supabase
       .from('profiles')
       .select('status')
       .eq('id', user.id)
       .single();
 
-    if (profile && profile.status !== 'ACTIVE') {
+    const status = profile?.status;
+
+    // PENDING/INACTIVE 사용자가 일반 페이지에 접근하면 /pending 으로
+    if (!isPendingRoute && status && status !== 'ACTIVE') {
       const url = request.nextUrl.clone();
       url.pathname = '/pending';
       return NextResponse.redirect(url);
     }
-  }
 
-  // ACTIVE 사용자가 /pending에 접근 시 dashboard로
-  if (user && isPendingRoute) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('status')
-      .eq('id', user.id)
-      .single();
-
-    if (profile?.status === 'ACTIVE') {
+    // ACTIVE 사용자가 /pending 접근 시 dashboard 로
+    if (isPendingRoute && status === 'ACTIVE') {
       const url = request.nextUrl.clone();
       url.pathname = '/dashboard';
       return NextResponse.redirect(url);

@@ -1,27 +1,18 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentProfile } from '@/lib/auth';
 import NavBar from '@/components/NavBar';
 import { ToastProvider } from '@/components/Toast';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, name, role, status')
-    .eq('id', user.id)
-    .single();
-
+  const profile = await getCurrentProfile();
   if (!profile) redirect('/login');
   if (profile.status !== 'ACTIVE') redirect('/pending');
 
   let pendingApprovals = 0;
   let pendingUsers = 0;
   if (profile.role === 'MANAGER') {
+    const supabase = await createClient();
     const [{ count: dealCount }, { count: userCount }] = await Promise.all([
       supabase
         .from('deals')

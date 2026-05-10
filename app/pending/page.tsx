@@ -1,21 +1,12 @@
 import { Clock, ShieldOff, LogOut } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { getCurrentProfile } from '@/lib/auth';
 
 export default async function PendingPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  const profile = await getCurrentProfile();
+  if (!profile) redirect('/login');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('name, status')
-    .eq('id', user.id)
-    .single();
-
-  const status = profile?.status ?? 'PENDING';
+  const status = profile.status ?? 'PENDING';
   const isInactive = status === 'INACTIVE';
 
   return (
@@ -30,7 +21,7 @@ export default async function PendingPage() {
           {isInactive ? '접근 권한이 회수되었습니다' : '관리자 승인 대기 중'}
         </h1>
         <p className="text-sm text-[#4E5968] font-medium leading-relaxed mb-6">
-          {profile?.name ? `${profile.name}님, ` : ''}
+          {profile.name ? `${profile.name}님, ` : ''}
           {isInactive
             ? '계정 접속 권한이 회수된 상태입니다. 관리자에게 문의해주세요.'
             : '가입은 완료되었습니다. 관리자 승인 후 정상 접속이 가능합니다.'}

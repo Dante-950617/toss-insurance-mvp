@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentProfile } from '@/lib/auth';
 import DashboardClient from '@/components/DashboardClient';
 import { calcMember } from '@/lib/utils';
 import type { Profile, TeamSettings, Deal, Task } from '@/lib/types';
@@ -6,47 +7,38 @@ import type { Profile, TeamSettings, Deal, Task } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
+  const profileData = await getCurrentProfile();
+  if (!profileData) return null;
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
 
-  const { data: profileData } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single<Profile>();
-
-  const { data: membersRaw } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('role', 'REP')
-    .eq('status', 'ACTIVE')
-    .order('name');
-
-  const { data: teamSettings } = await supabase
-    .from('team_settings')
-    .select('*')
-    .eq('id', 1)
-    .single<TeamSettings>();
-
-  const { data: deals } = await supabase.from('deals').select('*').order('last_updated', {
-    ascending: false,
-  });
-
-  const { data: tasks } = await supabase
-    .from('tasks')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('done', { ascending: true })
-    .order('due_date', { ascending: true, nullsFirst: false });
+  const [
+    { data: membersRaw },
+    { data: teamSettings },
+    { data: deals },
+    { data: tasks },
+  ] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'REP')
+      .eq('status', 'ACTIVE')
+      .order('name'),
+    supabase.from('team_settings').select('*').eq('id', 1).single<TeamSettings>(),
+    supabase.from('deals').select('*').order('last_updated', { ascending: false }),
+    supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', profileData.id)
+      .order('done', { ascending: true })
+      .order('due_date', { ascending: true, nullsFirst: false }),
+  ]);
 
   const members = ((membersRaw ?? []) as Profile[]).map(calcMember);
 
   return (
     <DashboardClient
-      currentUser={profileData!}
+      currentUser={profileData}
       members={members}
       teamSettings={
         teamSettings ?? {

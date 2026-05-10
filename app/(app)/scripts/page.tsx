@@ -1,21 +1,15 @@
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentProfile } from '@/lib/auth';
 import ScriptsClient from '@/components/ScriptsClient';
-import type { Profile, SalesScript } from '@/lib/types';
+import type { SalesScript } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ScriptsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const profileData = await getCurrentProfile();
+  if (!profileData) return null;
 
-  const { data: profileData } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single<Profile>();
+  const supabase = await createClient();
 
   const { data: scripts } = await supabase
     .from('sales_scripts')
@@ -25,7 +19,7 @@ export default async function ScriptsPage() {
 
   return (
     <ScriptsClient
-      currentUser={profileData!}
+      currentUser={profileData}
       initialScripts={(scripts ?? []) as SalesScript[]}
     />
   );

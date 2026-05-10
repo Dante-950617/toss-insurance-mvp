@@ -1,41 +1,28 @@
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentProfile } from '@/lib/auth';
 import PipelineClient from '@/components/PipelineClient';
 import type { Profile, Deal, DealActivity } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PipelinePage() {
+  const profileData = await getCurrentProfile();
+  if (!profileData) return null;
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
 
-  const { data: profileData } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single<Profile>();
-
-  const { data: members } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('status', 'ACTIVE')
-    .order('name');
-
-  const { data: deals } = await supabase
-    .from('deals')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  const { data: activities } = await supabase
-    .from('deal_activities')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const [{ data: members }, { data: deals }, { data: activities }] = await Promise.all([
+    supabase.from('profiles').select('*').eq('status', 'ACTIVE').order('name'),
+    supabase.from('deals').select('*').order('created_at', { ascending: false }),
+    supabase
+      .from('deal_activities')
+      .select('*')
+      .order('created_at', { ascending: false }),
+  ]);
 
   return (
     <PipelineClient
-      currentUser={profileData!}
+      currentUser={profileData}
       members={(members ?? []) as Profile[]}
       initialDeals={(deals ?? []) as Deal[]}
       initialActivities={(activities ?? []) as DealActivity[]}
