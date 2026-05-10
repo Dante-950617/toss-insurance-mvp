@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 import {
   Target,
   KanbanSquare,
@@ -28,6 +29,18 @@ export default function NavBar({
   pendingUsers?: number;
 }) {
   const pathname = usePathname();
+  const activeTabRef = useRef<HTMLAnchorElement | null>(null);
+
+  // 활성 탭이 모바일 가로 스크롤 영역 밖에 있을 때 자동 가시화
+  useEffect(() => {
+    const el = activeTabRef.current;
+    if (!el) return;
+    el.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    });
+  }, [pathname]);
 
   const tabs: {
     href: string;
@@ -81,6 +94,7 @@ export default function NavBar({
                 return (
                   <Link
                     key={t.href}
+                    ref={active ? activeTabRef : null}
                     href={t.href}
                     className={`relative shrink-0 px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center whitespace-nowrap ${
                       active

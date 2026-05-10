@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useTransition, type FormEvent } from 'react';
+import { useState, useMemo, useTransition, useEffect, type FormEvent } from 'react';
 import Link from 'next/link';
 import {
   Target,
@@ -112,6 +112,31 @@ export default function DashboardClient({
   const [activeMemberId, setActiveMemberId] = useState<string>(
     currentUser.role === 'MANAGER' ? 'ALL' : currentUser.id
   );
+
+  // 자동 할일 "오늘 가리기" — localStorage 기반 (사용자 디바이스별 dismissal)
+  // key = autoTask.key, value = ISO date string (가린 시점)
+  const DISMISS_KEY = `dismissed_auto_tasks_${currentUser.id}`;
+  const [dismissedTasks, setDismissedTasks] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(DISMISS_KEY);
+      if (raw) setDismissedTasks(JSON.parse(raw));
+    } catch {
+      // 무시
+    }
+  }, [DISMISS_KEY]);
+
+  const dismissAutoTask = (key: string) => {
+    const next = { ...dismissedTasks, [key]: new Date().toISOString() };
+    setDismissedTasks(next);
+    try {
+      localStorage.setItem(DISMISS_KEY, JSON.stringify(next));
+    } catch {
+      // localStorage 용량 초과 등 무시
+    }
+  };
 
   const handleAddTask = (e: FormEvent) => {
     e.preventDefault();
@@ -265,6 +290,16 @@ export default function DashboardClient({
 
     return items.sort((a, b) => a.priority - b.priority);
   }, [deals, currentUser, members, todayStr]);
+
+  // 오늘 dismiss된 항목은 가림 (다음날 자정 후 다시 보임)
+  const visibleAutoTasks = useMemo(() => {
+    return autoTasks.filter((t) => {
+      const dismissedAt = dismissedTasks[t.key];
+      if (!dismissedAt) return true;
+      // dismissedAt 이 오늘 날짜면 가림
+      return dismissedAt.slice(0, 10) !== todayStr;
+    });
+  }, [autoTasks, dismissedTasks, todayStr]);
 
   const autoTaskMeta: Record<
     AutoTaskType,
@@ -591,17 +626,22 @@ export default function DashboardClient({
                 오늘 할 일
               </h3>
               <span className="text-xs font-bold text-[#8B95A1]">
-                {autoTasks.length + tasks.filter((t) => !t.done).length}건
+                {visibleAutoTasks.length + tasks.filter((t) => !t.done).length}건
+                {autoTasks.length > visibleAutoTasks.length && (
+                  <span className="ml-1 text-[10px] text-[#8B95A1]">
+                    (가린 {autoTasks.length - visibleAutoTasks.length})
+                  </span>
+                )}
               </span>
             </div>
 
-            {autoTasks.length > 0 && (
+            {visibleAutoTasks.length > 0 && (
               <div className="mb-5">
                 <p className="text-[11px] font-bold text-[#8B95A1] uppercase tracking-wider mb-2 px-1">
                   딜에서 자동 추출됨
                 </p>
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1 no-scrollbar">
-                  {autoTasks.map((task) => {
+                  {visibleAutoTasks.map((task) => {
                     const meta = autoTaskMeta[task.type];
                     const isApproval = task.type === 'pending_approval';
                     return (
@@ -649,7 +689,14 @@ export default function DashboardClient({
                             </button>
                           </div>
                         ) : (
-                          <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-1 group-hover:text-[#3182F6]" />
+                          <button
+                            type="button"
+                            onClick={() => dismissAutoTask(task.key)}
+                            className="text-gray-300 hover:text-[#3182F6] hover:bg-blue-50 transition-colors p-1 rounded shrink-0"
+                            title="오늘 가리기 (자정 후 다시 표시)"
+                          >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
                     );

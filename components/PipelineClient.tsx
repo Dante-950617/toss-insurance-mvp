@@ -197,6 +197,12 @@ export default function PipelineClient({
     if (found) {
       setDetailDeal({ ...found });
       initEditingPromos(found);
+      // 모바일에서 활성 단계 탭을 그 딜의 stage 로 (안 그러면 '진행대기' 탭만 보여 안 보임)
+      setMobileStage(found.stage);
+      // 매니저면 해당 딜의 owner REP 으로 자동 전환 (시점 컨텍스트 유지)
+      if (currentUser.role === 'MANAGER' && found.member_id !== activeMemberId) {
+        setActiveMemberId(found.member_id);
+      }
       // 화면 리프레시 시 다시 안 열리도록 URL 정리
       router.replace('/pipeline', { scroll: false });
     }
@@ -1546,19 +1552,49 @@ export default function PipelineClient({
                     <div className="mt-4 flex gap-3">
                       <button
                         type="button"
-                        onClick={() =>
-                          setDetailDeal({ ...detailDeal, stage: '보고서 전달' })
-                        }
+                        onClick={() => {
+                          // 즉시 저장 + 모달 닫기 — "변경사항 저장" 추가 클릭 불필요
+                          const dealId = detailDeal.id;
+                          const prevStage = detailDeal.stage;
+                          optimisticPatch(dealId, { stage: '보고서 전달' });
+                          setDetailDeal(null);
+                          setEditingPromos({});
+                          startTransition(async () => {
+                            const res = await updateDealStage(dealId, '보고서 전달');
+                            if (res.error) {
+                              optimisticPatch(dealId, { stage: prevStage });
+                              showToast(`승인 실패: ${res.error}`);
+                            } else {
+                              showToast('승인 완료 — 보고서 전달 단계로 이동했습니다.');
+                            }
+                          });
+                        }}
                         className="flex-1 bg-[#3182F6] text-white py-3 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
                       >
-                        승인 → 보고서 전달
+                        ✓ 승인 → 보고서 전달
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDetailDeal({ ...detailDeal, stage: '대면미팅' })}
+                        onClick={() => {
+                          // 즉시 반려 처리
+                          const dealId = detailDeal.id;
+                          const prevStage = detailDeal.stage;
+                          optimisticPatch(dealId, { stage: '대면미팅' });
+                          setDetailDeal(null);
+                          setEditingPromos({});
+                          startTransition(async () => {
+                            const res = await updateDealStage(dealId, '대면미팅');
+                            if (res.error) {
+                              optimisticPatch(dealId, { stage: prevStage });
+                              showToast(`반려 실패: ${res.error}`);
+                            } else {
+                              showToast('대면미팅 단계로 반려했습니다.');
+                            }
+                          });
+                        }}
                         className="flex-1 bg-white text-[#4E5968] border border-gray-200 py-3 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
                       >
-                        보류 (반려)
+                        ↩ 보류 (반려)
                       </button>
                     </div>
                   )}

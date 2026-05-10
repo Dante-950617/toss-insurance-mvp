@@ -47,10 +47,17 @@ type FormState = {
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+// 종료일 기본값: 오늘 + N일
+const datePlusDays = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
 const EMPTY_FORM: FormState = {
   name: '',
   start_date: todayStr(),
-  end_date: todayStr(),
+  end_date: datePlusDays(30), // 1일짜리 프로모션 실수 방지
   status: 'active',
   description: '',
   use_monthly: false,
@@ -103,7 +110,7 @@ export default function PromotionsListClient({
   };
 
   const openCreate = () => {
-    setForm({ ...EMPTY_FORM, start_date: today, end_date: today });
+    setForm({ ...EMPTY_FORM, start_date: today, end_date: datePlusDays(30) });
     setEditingId(null);
     setShowForm(true);
   };
@@ -128,7 +135,7 @@ export default function PromotionsListClient({
     setForm({
       name: `${p.name} (복사)`,
       start_date: today,
-      end_date: today,
+      end_date: datePlusDays(30),
       status: 'draft',
       description: p.description,
       use_monthly: p.per_month_threshold > 0,
