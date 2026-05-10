@@ -267,62 +267,102 @@ export default function AnalyticsClient({
         />
       </div>
 
-      {/* 퍼널 잔존율 */}
+      {/* 퍼널 잔존율 — Mixpanel 스타일 세로 막대 */}
       <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
-        <h2 className="text-lg font-bold text-[#191F28] mb-1 flex items-center">
-          <Filter className="w-5 h-5 mr-2 text-[#3182F6]" />
-          퍼널 잔존율
-        </h2>
-        <p className="text-xs text-[#8B95A1] font-medium mb-5">
-          {memberFilter === 'ALL'
-            ? '팀 전체'
-            : members.find((m) => m.id === memberFilter)?.name ?? ''}{' '}
-          · 분모 = 기간 내 등록된 딜 ({totalEntered}건)
-        </p>
+        <div className="flex items-start justify-between mb-1 flex-wrap gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-[#191F28] flex items-center">
+              <Filter className="w-5 h-5 mr-2 text-[#3182F6]" />
+              퍼널 잔존율
+            </h2>
+            <p className="text-xs text-[#8B95A1] font-medium mt-1">
+              {memberFilter === 'ALL'
+                ? '팀 전체'
+                : members.find((m) => m.id === memberFilter)?.name ?? ''}{' '}
+              · 분모 = 기간 내 등록된 딜 ({totalEntered}건)
+            </p>
+          </div>
+          {totalEntered > 0 && (
+            <div className="text-xs font-bold text-[#4E5968] bg-blue-50 text-[#3182F6] px-3 py-1.5 rounded-full">
+              전체 전환율 {conversionRate}%
+            </div>
+          )}
+        </div>
+
         {totalEntered === 0 ? (
-          <p className="text-sm text-[#8B95A1] text-center py-8 bg-gray-50 rounded-xl">
+          <p className="text-sm text-[#8B95A1] text-center py-12 bg-gray-50 rounded-xl mt-4">
             해당 기간에 등록된 딜이 없습니다.
           </p>
         ) : (
-          <div className="space-y-3">
-            {funnelRows.map((r) => (
-              <div key={r.stage}>
-                <div className="flex justify-between items-end mb-1">
-                  <span className="text-sm font-bold text-[#191F28]">
-                    {r.stage}
-                  </span>
-                  <div className="text-xs font-medium text-[#8B95A1] flex gap-2 items-center">
-                    {r.lostHere > 0 && (
-                      <span className="text-red-500 font-bold">
-                        ✖ {r.lostHere}
-                      </span>
-                    )}
-                    {r.wonHere > 0 && (
-                      <span className="text-green-600 font-bold">
-                        🏆 {r.wonHere}
-                      </span>
-                    )}
-                    {r.stillHere > 0 && (
-                      <span className="text-[#3182F6]">
-                        체류 {r.stillHere}
-                      </span>
-                    )}
-                    <span className="font-extrabold text-[#191F28]">
-                      {r.reached}건
-                    </span>
-                    <span className="font-extrabold text-[#3182F6] w-12 text-right">
-                      {r.pct.toFixed(1)}%
-                    </span>
+          <div className="mt-6">
+            {/* 세로 막대 그리드 — 단계 수만큼 자동 분할 (단계 많을수록 막대 좁아짐) */}
+            <div
+              className="grid gap-2 items-end"
+              style={{ gridTemplateColumns: `repeat(${funnelRows.length}, minmax(0, 1fr))` }}
+            >
+              {funnelRows.map((r, idx) => {
+                const heightPct = Math.max(r.pct, 3); // 최소 3% 보이도록
+                const dropFromPrev =
+                  idx > 0 && funnelRows[idx - 1].reached > 0
+                    ? (r.reached / funnelRows[idx - 1].reached) * 100
+                    : 100;
+                return (
+                  <div key={r.stage} className="flex flex-col items-center min-w-0">
+                    {/* 상단: 비율 + 카운트 */}
+                    <div className="text-center mb-2 w-full">
+                      <div className="text-base md:text-lg font-extrabold text-[#191F28] leading-tight">
+                        {r.pct.toFixed(1)}%
+                      </div>
+                      <div className="text-[10px] text-[#8B95A1] font-bold">
+                        {r.reached}건
+                      </div>
+                    </div>
+
+                    {/* 막대 — 높이가 % 비례 */}
+                    <div className="w-full h-56 bg-[#F2F4F6] rounded-t-md relative flex flex-col justify-end overflow-hidden border-b-2 border-[#3182F6]">
+                      <div
+                        className="w-full bg-gradient-to-b from-[#5B9BFF] to-[#3182F6] transition-all"
+                        style={{ height: `${heightPct}%` }}
+                      />
+                      {/* 이전 단계 대비 전환율 (2번째부터) */}
+                      {idx > 0 && (
+                        <div className="absolute top-1.5 left-1/2 -translate-x-1/2 bg-white text-[#4E5968] text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm border border-gray-200 whitespace-nowrap">
+                          {dropFromPrev.toFixed(0)}%
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 하단: 단계명 + LOSE/WIN */}
+                    <div className="text-center mt-2 w-full px-0.5">
+                      <div className="text-[10px] md:text-[11px] font-bold text-[#191F28] truncate leading-tight">
+                        <span className="text-[#8B95A1] mr-0.5">{idx + 1}.</span>
+                        {r.stage}
+                      </div>
+                      <div className="text-[10px] mt-1 flex items-center justify-center gap-1 flex-wrap">
+                        {r.lostHere > 0 && (
+                          <span className="text-red-500 font-bold">
+                            ✖{r.lostHere}
+                          </span>
+                        )}
+                        {r.wonHere > 0 && (
+                          <span className="text-green-600 font-bold">
+                            🏆{r.wonHere}
+                          </span>
+                        )}
+                        {r.stillHere > 0 && r.lostHere === 0 && r.wonHere === 0 && (
+                          <span className="text-[#8B95A1] font-medium">
+                            체류 {r.stillHere}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#3182F6] to-blue-400 rounded-full"
-                    style={{ width: `${r.pct}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-[#8B95A1] font-medium mt-4 text-center">
+              상단 막대 위 칩 = 직전 단계 대비 전환율 · 막대 높이 = 진입 대비 도달률
+            </p>
           </div>
         )}
       </div>

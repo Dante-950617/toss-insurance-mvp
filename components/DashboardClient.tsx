@@ -1026,7 +1026,7 @@ function ProgressRow({
   );
 }
 
-// ---------- 미니 퍼널 잔존율 위젯 ----------
+// ---------- 미니 퍼널 잔존율 위젯 (Mixpanel 스타일) ----------
 function FunnelMini({ deals, title }: { deals: Deal[]; title: string }) {
   const total = deals.length;
   if (total === 0) return null;
@@ -1037,43 +1037,81 @@ function FunnelMini({ deals, title }: { deals: Deal[]; title: string }) {
     const lost = deals.filter(
       (d) => (d.outcome ?? 'PENDING') === 'LOSE' && d.stage === s
     ).length;
+    const won = deals.filter(
+      (d) => (d.outcome ?? 'PENDING') === 'WIN' && d.stage === s
+    ).length;
     const pct = (reached / total) * 100;
-    return { stage: s, reached, lost, pct };
+    return { stage: s, reached, lost, won, pct };
   });
+  const finalConv = (rows[rows.length - 1].reached / total) * 100;
 
   return (
     <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h3 className="text-sm font-bold text-[#191F28] flex items-center">
           <BarChart2 className="w-4 h-4 mr-1.5 text-[#3182F6]" />
           {title}
         </h3>
-        <span className="text-[11px] text-[#8B95A1] font-bold">
-          전체 {total}건 진입
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-[#8B95A1] font-bold">
+            진입 {total}건
+          </span>
+          <span className="text-[11px] font-extrabold text-[#3182F6] bg-blue-50 px-2.5 py-0.5 rounded-full">
+            전환율 {finalConv.toFixed(1)}%
+          </span>
+        </div>
       </div>
-      <div className="grid grid-cols-7 gap-2">
-        {rows.map((r) => (
-          <div key={r.stage} className="text-center min-w-0">
-            <div className="text-[10px] font-bold text-[#4E5968] mb-1.5 truncate">
-              {r.stage}
-            </div>
-            <div className="bg-gray-100 rounded-lg h-20 flex flex-col justify-end overflow-hidden relative">
-              <div
-                className="bg-gradient-to-t from-[#3182F6] to-blue-400"
-                style={{ height: `${r.pct}%` }}
-              />
-            </div>
-            <div className="text-[11px] font-extrabold text-[#191F28] mt-1.5">
-              {r.pct.toFixed(0)}%
-            </div>
-            <div className="text-[10px] text-[#8B95A1] font-bold">
-              {r.reached}건{r.lost > 0 && (
-                <span className="text-red-500"> · ✖{r.lost}</span>
+      <div
+        className="grid gap-2 items-end"
+        style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}
+      >
+        {rows.map((r, idx) => {
+          const heightPct = Math.max(r.pct, 4);
+          const dropFromPrev =
+            idx > 0 && rows[idx - 1].reached > 0
+              ? (r.reached / rows[idx - 1].reached) * 100
+              : 100;
+          return (
+            <div key={r.stage} className="flex flex-col items-center min-w-0">
+              {/* 상단 비율 */}
+              <div className="text-center mb-1.5 w-full">
+                <div className="text-sm font-extrabold text-[#191F28] leading-tight">
+                  {r.pct.toFixed(0)}%
+                </div>
+                <div className="text-[10px] text-[#8B95A1] font-bold">
+                  {r.reached}건
+                </div>
+              </div>
+              {/* 막대 */}
+              <div className="w-full h-24 bg-[#F2F4F6] rounded-t-md relative flex flex-col justify-end overflow-hidden border-b-2 border-[#3182F6]">
+                <div
+                  className="w-full bg-gradient-to-b from-[#5B9BFF] to-[#3182F6]"
+                  style={{ height: `${heightPct}%` }}
+                />
+                {idx > 0 && (
+                  <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-white text-[#4E5968] text-[9px] font-extrabold px-1 py-0 rounded-full shadow-sm border border-gray-200 whitespace-nowrap">
+                    {dropFromPrev.toFixed(0)}%
+                  </div>
+                )}
+              </div>
+              {/* 단계명 */}
+              <div className="text-[10px] font-bold text-[#4E5968] mt-1.5 truncate w-full text-center">
+                <span className="text-[#8B95A1] mr-0.5">{idx + 1}.</span>
+                {r.stage}
+              </div>
+              {(r.lost > 0 || r.won > 0) && (
+                <div className="text-[10px] mt-0.5 flex items-center justify-center gap-1 flex-wrap">
+                  {r.lost > 0 && (
+                    <span className="text-red-500 font-bold">✖{r.lost}</span>
+                  )}
+                  {r.won > 0 && (
+                    <span className="text-green-600 font-bold">🏆{r.won}</span>
+                  )}
+                </div>
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
