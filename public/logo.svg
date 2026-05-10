@@ -1,15 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36" role="img" aria-label="Toss Insurance">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Toss Insurance">
   <defs>
-    <linearGradient id="tossGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#5B9BFF"/>
-      <stop offset="100%" stop-color="#3182F6"/>
+    <!-- 좌측(밝은) 반쪽 — 위쪽 광택 + 우측 어두워지는 그라디언트 -->
+    <linearGradient id="leftHalf" x1="20%" y1="10%" x2="100%" y2="90%">
+      <stop offset="0%" stop-color="#7AB0FF"/>
+      <stop offset="55%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1E40AF"/>
     </linearGradient>
-    <linearGradient id="tossDark" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1E5FE8"/>
-      <stop offset="100%" stop-color="#0D47C8"/>
+    <!-- 우측(약간 어두운) 반쪽 — 좌측 광택 + 우측 깊어지는 그라디언트 -->
+    <linearGradient id="rightHalf" x1="0%" y1="20%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#5B9BFF"/>
+      <stop offset="55%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <!-- 교차선 강조용 진한 그림자 -->
+    <linearGradient id="seam" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#0B1F5A" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <circle cx="18" cy="18" r="14" fill="url(#tossGrad)"/>
-  <path d="M 18 4 A 14 14 0 0 1 18 32 Z" fill="url(#tossDark)" opacity="0.8"/>
-  <ellipse cx="14" cy="14" rx="3" ry="2.2" fill="#FFFFFF" opacity="0.35"/>
+
+  <!-- 좌측 반원 (오른쪽으로 살짝 기울어짐) -->
+  <g transform="rotate(-18 32 32)">
+    <path
+      d="M 32 6 A 22 26 0 0 0 32 58 Z"
+      fill="url(#leftHalf)"
+    />
+  </g>
+
+  <!-- 우측 반원 (왼쪽으로 살짝 기울어짐, 좌측보다 위에 깔림) -->
+  <g transform="rotate(18 32 32)">
+    <path
+      d="M 32 6 A 22 26 0 0 1 32 58 Z"
+      fill="url(#rightHalf)"
+    />
+  </g>
+
+  <!-- 교차 부분 진하게 (3D 입체감) -->
+  <rect x="29" y="10" width="6" height="44" fill="url(#seam)" opacity="0.55"/>
+
+  <!-- 좌측 광택 하이라이트 -->
+  <ellipse cx="22" cy="22" rx="6" ry="3" fill="#FFFFFF" opacity="0.18"
+           transform="rotate(-30 22 22)"/>
 </svg>

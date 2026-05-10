@@ -75,11 +75,15 @@ export default function NavBar({
     <nav className="bg-white border-b border-gray-100 px-6 py-4 mb-6 sticky top-0 z-40 shadow-sm">
       <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4">
         <Link href="/dashboard" className="font-extrabold text-lg md:text-xl text-[#191F28] tracking-tight flex items-center shrink-0">
-          {/* /public/logo.svg 또는 /public/logo.png 둘 다 지원 — 둘 중 하나만 두면 됨 */}
+          {/* /public/logo.png 우선, 없으면 /public/logo.svg fallback */}
           <img
-            src="/logo.svg"
+            src="/logo.png"
+            onError={(e) => {
+              const el = e.currentTarget as HTMLImageElement;
+              if (!el.src.endsWith('/logo.svg')) el.src = '/logo.svg';
+            }}
             alt="Toss Insurance"
-            className="w-7 h-7 md:w-8 md:h-8 mr-2"
+            className="w-7 h-7 md:w-8 md:h-8 mr-2 object-contain"
           />
           <span className="lowercase">toss insurance</span>
         </Link>
