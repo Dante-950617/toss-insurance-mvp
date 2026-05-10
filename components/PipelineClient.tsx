@@ -119,8 +119,6 @@ export default function PipelineClient({
   const [reasonModalDeal, setReasonModalDeal] = useState<Deal | null>(null);
   const [failureReason, setFailureReason] = useState('');
   const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
-  // 연납기준이 사용자가 명시적으로 수정된 적 있는지(트루면 월납 변경 시 자동 덮어쓰기 X)
-  const [annualEdited, setAnnualEdited] = useState(false);
   const [confirmDeleteDealId, setConfirmDeleteDealId] = useState<string | null>(null);
   const [newActivity, setNewActivity] = useState({
     type: 'call_success' as ActivityType,
@@ -155,7 +153,6 @@ export default function PipelineClient({
     const found = deals.find((d) => d.id === dealId);
     if (found) {
       setDetailDeal({ ...found });
-      setAnnualEdited((found.annual_premium ?? 0) > 0);
       // 화면 리프레시 시 다시 안 열리도록 URL 정리
       router.replace('/pipeline', { scroll: false });
     }
@@ -163,10 +160,8 @@ export default function PipelineClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // 카드 클릭으로 모달 열기 (연납 수정 여부 초기화 동반)
   const openDetailDeal = (deal: Deal) => {
     setDetailDeal({ ...deal });
-    setAnnualEdited((deal.annual_premium ?? 0) > 0);
   };
 
   const optimisticPatch = (id: string, patch: Partial<Deal>) => {
@@ -302,7 +297,6 @@ export default function PipelineClient({
       referrer: detailDeal.referrer,
       category: detailDeal.category,
       category_custom: detailDeal.category_custom,
-      annual_premium: detailDeal.annual_premium,
       renewal_type: detailDeal.renewal_type,
       maturity_type: detailDeal.maturity_type,
       maturity_custom: detailDeal.maturity_custom,
@@ -448,14 +442,9 @@ export default function PipelineClient({
               <FileText className="w-3 h-3 mr-1 text-gray-400" /> {catLabel}
             </span>
           )}
-          {deal.annual_premium > 0 && (
-            <span className="inline-flex items-center text-[11px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold">
-              연납 {formatCurrency(deal.annual_premium)}원
-            </span>
-          )}
           {deal.monthly_premium > 0 && (
-            <span className="inline-flex items-center text-[11px] bg-green-50 text-green-700 px-2 py-1 rounded-md font-medium">
-              <CreditCard className="w-3 h-3 mr-1" /> 월 {formatCurrency(deal.monthly_premium)}
+            <span className="inline-flex items-center text-[11px] bg-blue-50 text-[#3182F6] px-2 py-1 rounded-md font-bold">
+              <CreditCard className="w-3 h-3 mr-1" /> 월 {formatCurrency(deal.monthly_premium)}원
             </span>
           )}
           {(renewalLabel || matLabel) && (
@@ -944,68 +933,24 @@ export default function PipelineClient({
                   )}
                 </div>
 
-                {/* 월납입 + 연납기준 (자동계산 포함) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
-                      월납입 예정액 (원)
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="예: 100000"
-                      value={detailDeal.monthly_premium || ''}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setDetailDeal({
-                          ...detailDeal,
-                          monthly_premium: v,
-                          // 사용자가 연납을 명시적으로 손대지 않은 경우만 자동 동기화
-                          ...(annualEdited
-                            ? {}
-                            : { annual_premium: v * 12 }),
-                        });
-                      }}
-                      className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
-                      readOnly={!canManageDeal(detailDeal)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[#4E5968] mb-1.5 flex items-center justify-between">
-                      <span>
-                        연납기준 (원) <span className="text-[#3182F6]">*KPI</span>
-                      </span>
-                      {canManageDeal(detailDeal) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetailDeal({
-                              ...detailDeal,
-                              annual_premium:
-                                (detailDeal.monthly_premium || 0) * 12,
-                            });
-                            setAnnualEdited(false);
-                          }}
-                          className="text-[10px] font-bold text-[#3182F6] hover:underline"
-                        >
-                          = 월×12
-                        </button>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="자동계산 (월×12)"
-                      value={detailDeal.annual_premium || ''}
-                      onChange={(e) => {
-                        setDetailDeal({
-                          ...detailDeal,
-                          annual_premium: Number(e.target.value),
-                        });
-                        setAnnualEdited(true);
-                      }}
-                      className="w-full border border-blue-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
-                      readOnly={!canManageDeal(detailDeal)}
-                    />
-                  </div>
+                {/* 월납입 예정액 (KPI 합산 기준) */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#4E5968] mb-1.5">
+                    월납입 예정액 (원) <span className="text-[#3182F6]">*KPI</span>
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="예: 100000"
+                    value={detailDeal.monthly_premium || ''}
+                    onChange={(e) =>
+                      setDetailDeal({
+                        ...detailDeal,
+                        monthly_premium: Number(e.target.value),
+                      })
+                    }
+                    className="w-full border border-blue-200 bg-white rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-[#3182F6] outline-none"
+                    readOnly={!canManageDeal(detailDeal)}
+                  />
                 </div>
 
                 {/* 갱신 여부 + 만기 구분 (+ 만기 기타 직접입력) */}
