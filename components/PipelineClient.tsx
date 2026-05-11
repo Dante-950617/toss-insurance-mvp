@@ -137,6 +137,8 @@ export default function PipelineClient({
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<DealStage | 'ALL'>('ALL');
   const [mobileStage, setMobileStage] = useState<DealStage>('진행대기');
+  // 진행중(active) / 결과 처리됨(completed) 뷰 전환
+  const [viewMode, setViewMode] = useState<'active' | 'completed'>('active');
 
   const [reasonModalDeal, setReasonModalDeal] = useState<Deal | null>(null);
   const [failureReason, setFailureReason] = useState('');
@@ -155,6 +157,10 @@ export default function PipelineClient({
     const searchLower = searchRaw.toLowerCase();
     const searchPhone = normalizePhone(searchRaw);
     return memberFiltered.filter((d) => {
+      const outcome = d.outcome ?? 'PENDING';
+      // viewMode 분기: active 는 PENDING 만, completed 는 WIN/LOSE 만
+      if (viewMode === 'active' && outcome !== 'PENDING') return false;
+      if (viewMode === 'completed' && outcome === 'PENDING') return false;
       if (stageFilter !== 'ALL' && d.stage !== stageFilter) return false;
       if (!searchLower) return true;
       const phoneMatch =
@@ -166,7 +172,25 @@ export default function PipelineClient({
         d.notes.toLowerCase().includes(searchLower)
       );
     });
-  }, [deals, activeMemberId, search, stageFilter]);
+  }, [deals, activeMemberId, search, stageFilter, viewMode]);
+
+  // 탭 카운트는 search/stage 필터 무관하게 본인 모든 딜 기준
+  const memberAllDeals = useMemo(
+    () => deals.filter((d) => d.member_id === activeMemberId),
+    [deals, activeMemberId]
+  );
+  const counts = useMemo(() => {
+    let active = 0,
+      win = 0,
+      lose = 0;
+    for (const d of memberAllDeals) {
+      const outcome = d.outcome ?? 'PENDING';
+      if (outcome === 'PENDING') active++;
+      else if (outcome === 'WIN') win++;
+      else if (outcome === 'LOSE') lose++;
+    }
+    return { active, win, lose, completed: win + lose };
+  }, [memberAllDeals]);
 
   // 프로모션 매핑 초기화 헬퍼
   // 이미 매핑된 프로모션은 체크 + 기존 rate. 미매핑 활성 프로모션 중
@@ -794,6 +818,7 @@ export default function PipelineClient({
           value={stageFilter}
           onChange={(e) => setStageFilter(e.target.value as DealStage | 'ALL')}
           className="bg-[#F2F4F6] border-none rounded-xl px-4 py-3 text-sm font-bold cursor-pointer focus:ring-2 focus:ring-[#3182F6] outline-none"
+          disabled={viewMode === 'completed'}
         >
           <option value="ALL">전체 단계</option>
           {STAGES.map((s) => (
@@ -804,6 +829,103 @@ export default function PipelineClient({
         </select>
       </div>
 
+      {/* 진행중 / 결과 처리됨 탭 토글 */}
+      <div className="flex gap-1 p-1 bg-[#F2F4F6] rounded-xl w-fit shrink-0">
+        <button
+          onClick={() => setViewMode('active')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+            viewMode === 'active'
+              ? 'bg-white text-[#191F28] shadow-sm'
+              : 'text-[#4E5968] hover:text-[#191F28]'
+          }`}
+        >
+          진행중
+          <span
+            className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+              viewMode === 'active'
+                ? 'bg-[#3182F6] text-white'
+                : 'bg-white text-[#8B95A1]'
+            }`}
+          >
+            {counts.active}
+          </span>
+        </button>
+        <button
+          onClick={() => setViewMode('completed')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+            viewMode === 'completed'
+              ? 'bg-white text-[#191F28] shadow-sm'
+              : 'text-[#4E5968] hover:text-[#191F28]'
+          }`}
+        >
+          결과 처리됨
+          {counts.win > 0 && (
+            <span className="text-[10px] font-extrabold text-green-600">
+              🏆{counts.win}
+            </span>
+          )}
+          {counts.lose > 0 && (
+            <span className="text-[10px] font-extrabold text-red-500">
+              ✖{counts.lose}
+            </span>
+          )}
+          {counts.completed === 0 && (
+            <span className="text-[10px] font-extrabold text-[#8B95A1]">0</span>
+          )}
+        </button>
+      </div>
+
+      {/* viewMode === 'completed' — WIN/LOSE 그룹핑 뷰 */}
+      {viewMode === 'completed' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-y-auto pb-4">
+          {/* WIN 섹션 */}
+          <div className="bg-green-50/30 rounded-2xl p-4 border border-green-100 flex flex-col">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-green-700 text-sm flex items-center">
+                <Trophy className="w-4 h-4 mr-1.5" />
+                WIN
+                <span className="ml-2 text-[10px] font-extrabold text-green-700 bg-white border border-green-200 px-1.5 py-0.5 rounded-full">
+                  {filteredDeals.filter((d) => d.outcome === 'WIN').length}건
+                </span>
+              </h3>
+            </div>
+            <div className="space-y-2 flex-1 overflow-y-auto pr-1 no-scrollbar">
+              {filteredDeals
+                .filter((d) => d.outcome === 'WIN')
+                .map((deal) => renderCard(deal))}
+              {filteredDeals.filter((d) => d.outcome === 'WIN').length === 0 && (
+                <div className="text-center text-[#8B95A1] text-xs py-10 border-2 border-dashed border-green-100 rounded-[12px] font-medium">
+                  WIN 처리된 딜이 없습니다
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* LOSE 섹션 */}
+          <div className="bg-red-50/30 rounded-2xl p-4 border border-red-100 flex flex-col">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-red-700 text-sm flex items-center">
+                <XCircle className="w-4 h-4 mr-1.5" />
+                LOSE
+                <span className="ml-2 text-[10px] font-extrabold text-red-700 bg-white border border-red-200 px-1.5 py-0.5 rounded-full">
+                  {filteredDeals.filter((d) => d.outcome === 'LOSE').length}건
+                </span>
+              </h3>
+            </div>
+            <div className="space-y-2 flex-1 overflow-y-auto pr-1 no-scrollbar">
+              {filteredDeals
+                .filter((d) => d.outcome === 'LOSE')
+                .map((deal) => renderCard(deal))}
+              {filteredDeals.filter((d) => d.outcome === 'LOSE').length === 0 && (
+                <div className="text-center text-[#8B95A1] text-xs py-10 border-2 border-dashed border-red-100 rounded-[12px] font-medium">
+                  LOSE 처리된 딜이 없습니다
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Mobile: 단계 탭 + 단일 리스트 */}
       <div className="lg:hidden flex flex-col flex-1 min-h-0 gap-3">
         <div className="flex gap-1.5 overflow-x-auto no-scrollbar p-1 bg-white rounded-2xl shadow-sm border border-gray-100 shrink-0">
@@ -881,6 +1003,8 @@ export default function PipelineClient({
           </div>
         ))}
       </div>
+        </>
+      )}
 
       {detailDeal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center sm:justify-center z-50 sm:p-4">
